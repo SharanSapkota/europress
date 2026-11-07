@@ -1,0 +1,23 @@
+:root {
+  --primary: #0B3253;
+  --text: #2C3E50;
+  --text-on-primary: #FFFFFF;
+  --bg: #FFFFFF;
+  --muted: #5B6B7A;
+  --border: #D5DCE3;
+  --surface: #F2F5F8;
+  --check-bg: #FDEFD2;
+  --check-text: #6B3F00;
+  --explained-bg: #E6EAEE;
+  --good-text: #1E6B3A;
+  --focus: #0B3253;
+  --font: Inter, Roboto, "Open Sans", sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 64px;
+  --radius: 4px;
+  --tracking: 0.08em;
+}

@@ -1,0 +1,50 @@
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter, Link, NavLink, Route, Routes } from "react-router";
+import { CostsPage } from "./pages/CostsPage";
+import { DecisionsPage } from "./pages/DecisionsPage";
+import { InvoicesPage } from "./pages/InvoicesPage";
+import { OperatorsPage } from "./pages/OperatorsPage";
+import "./styles/tokens.css";
+import "./styles/app.css";
+
+function App() {
+  return (
+    <BrowserRouter>
+      <header className="topbar">
+        <span className="brand">Smart Weight</span>
+        <nav aria-label="Main" className="nav">
+          <NavLink to="/" end className="nav-link">
+            Invoices
+          </NavLink>
+          <NavLink to="/costs" className="nav-link">
+            Cost per tonne
+          </NavLink>
+          <NavLink to="/operators" className="nav-link">
+            Operators
+          </NavLink>
+        </nav>
+      </header>
+      <main className="page">
+        <Routes>
+          <Route path="/costs" element={<CostsPage />} />
+          <Route path="/operators" element={<OperatorsPage />} />
+          <Route path="/decisions" element={<DecisionsPage />} />
+          <Route path="*" element={<InvoicesPage />} />
+        </Routes>
+      </main>
+      <footer className="page footer">
+        <span>Our amounts are estimates. Demo data.</span>
+        <Link to="/decisions" className="footer-link">
+          Decisions
+        </Link>
+      </footer>
+    </BrowserRouter>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);

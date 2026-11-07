@@ -2,6 +2,9 @@
 
 Customer portal for waste-compactor customers (Since AI Hackathon 2026, Europress challenge). Demo on synthetic data.
 
+## MANDATORY: docs/TASKS.md
+Tasks A, B, B2, C, C2, D and E in `docs/TASKS.md` MUST all be delivered. Read it before every phase. Each feature you build must name the task it serves, follow that task's rules, and pass that task's check. Keep their status in PROGRESS.md. Never mark a task done without its check and its explanation (Task E).
+
 ## Product (build in this order, small slices)
 1. **Invoice comparison**: compare the invoice WE generate (our weight x contract tariff) with the invoice a third-party operator sends. Per pickup and per line.
 2. Weights view: pickups with weight, source label, range.
@@ -21,9 +24,9 @@ Add features only when asked.
 - Money in integer cents. Weights in kg. Dates ISO 8601 UTC.
 
 ## Mongo collections (seed from dataset CSV in `data/quickstart/public/csv`)
-`devices`, `collections` (collection_events), `tickets` (weighbridge_tickets), `operator_invoices` + `operator_invoice_lines` (invoices, invoice_lines), `contract_versions`, `our_invoices` (generated).
+One collection per CSV, same name. Generated: `decisions`.
 Join key between pickup, ticket and invoice line: `operator_job_ref`. It can contain typos: fall back to contract_id + service_date.
-Seed script: `api/scripts/seed.py` (read-only import, idempotent).
+Seed script: `api/scripts/seed.py` (loads every CSV, drops and reloads, never loads labels_dev).
 
 ## Invoice comparison rules
 - Our weight source order: operator ticket (`allocated_net_kg`) > calibrated device mass > fill estimate. Always store `source` and `range_kg`. Never guess an unknown weight.
@@ -66,4 +69,3 @@ font-family: Inter, Roboto, "Open Sans", sans-serif;
 - Web: `cd web && npm run dev`
 - Seed: `python api/scripts/seed.py data/quickstart/public/csv`
 - Mongo URI from `MONGO_URI` (default `mongodb://localhost:27017/portal`).
-
