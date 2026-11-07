@@ -6,6 +6,8 @@ import { DataPage } from "./pages/DataPage";
 import { DecisionsPage } from "./pages/DecisionsPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
 import { OperatorsPage } from "./pages/OperatorsPage";
+import { PrimaryIdeasPage } from "./pages/PrimaryIdeasPage";
+import { SecondaryIdeasPage } from "./pages/SecondaryIdeasPage";
 import "./styles/tokens.css";
 import "./styles/app.css";
 
@@ -24,12 +26,20 @@ function App() {
           <NavLink to="/operators" className="nav-link">
             Operators
           </NavLink>
+          <NavLink to="/primary-ideas" className="nav-link">
+            Primary ideas (5, 3, 6)
+          </NavLink>
+          <NavLink to="/secondary-ideas" className="nav-link">
+            Secondary ideas &amp; Task D
+          </NavLink>
         </nav>
       </header>
       <main className="page">
         <Routes>
           <Route path="/costs" element={<CostsPage />} />
           <Route path="/operators" element={<OperatorsPage />} />
+          <Route path="/primary-ideas" element={<PrimaryIdeasPage />} />
+          <Route path="/secondary-ideas" element={<SecondaryIdeasPage />} />
           <Route path="/decisions" element={<DecisionsPage />} />
           <Route path="/data" element={<DataPage />} />
           <Route path="*" element={<InvoicesPage />} />

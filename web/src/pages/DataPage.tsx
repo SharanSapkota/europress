@@ -12,8 +12,8 @@ const FACTS: Rule[] = [
   {
     rule: "Only cardboard and plastics earn a material credit. Paper and other streams are charged.",
     status: "Confirmed by Europress",
-    where: "Our invoice gives a material credit only for credit-eligible materials. Cost per tonne shows the credit separately.",
-    to: "/costs",
+    where: "Our invoice gives a material credit only for credit-eligible materials. Primary ideas (Idea 5) and Secondary ideas (Idea 2) apply credit logic strictly to cardboard, plastic film and mixed plastic.",
+    to: "/primary-ideas",
   },
   {
     rule: "Material quality is set only by the operator at its facility.",
@@ -35,7 +35,8 @@ const FACTS: Rule[] = [
   {
     rule: "Equipment classes COMBI and DUO.",
     status: "Europress machine types",
-    where: "Not used yet. No calculation depends on the equipment class.",
+    where: "Primary ideas (Idea 3) checks COMBI (≤22 m³, all biowaste) for winter frozen biowaste and heated floor options; Secondary ideas (Idea 7) checks non-biowaste COMBI units for 24–30 m³ DUO lease upgrades.",
+    to: "/secondary-ideas",
   },
   {
     rule: "Integrated weighing gives usable weights (a future scenario; most devices have it).",
@@ -46,19 +47,19 @@ const FACTS: Rule[] = [
   {
     rule: "Device weighing accuracy is about ±3.3 %; fault states exceed it.",
     status: "Simulation target set with Europress",
-    where: "Device weights show ± 3.3 %. The Why? on the main reason in Cost per tonne gives the share of valid device readings.",
-    to: "/costs",
+    where: "Device weights show ± 3.3 %. Secondary ideas (Idea 2 & Task D sensitivity) model both ±3.3 % normal tolerance and ±6.5 % degraded sensor noise.",
+    to: "/secondary-ideas",
   },
   {
     rule: "Fill estimate accuracy is about ±4 percentage points.",
     status: "Accepted synthetic assumption",
-    where: "Fill is used only as the median fill before pickup in Cost per tonne. The ±4 points are not shown yet.",
-    to: "/costs",
+    where: "Fill is used as the median fill before pickup in Cost per tonne and combined with mass_kg to compute measured bulk density (kg/m³) in Idea 5 and Idea 7.",
+    to: "/primary-ideas",
   },
   {
     rule: "Operators differ in data sharing (0–97 %), sharing delay and invoice accuracy.",
     status: "Synthetic assumption; operators are fictional",
-    where: "Operators shows tickets shared, the delay, and invoice lines to check per operator, each with Good or Check.",
+    where: "Operators shows tickets shared, the delay, and invoice lines to check per operator, each with Good or Check. Idea 2 provides a Day-0 provisional weight receipt for missing or >7d delayed tickets.",
     to: "/operators",
   },
   {
@@ -76,12 +77,13 @@ const FACTS: Rule[] = [
   {
     rule: "Business-case prices, cost to serve and adoption are not given.",
     status: "Teams choose and justify them",
-    where: "Not built yet (Task D).",
+    where: "Secondary ideas & Task D presents our 3-tier pricing (€29 / €49 / €110 per month), €8.50/month cost to serve, 1.6-month payback, and 5-scenario sensitivity table.",
+    to: "/secondary-ideas",
   },
   {
     rule: "Valuation rules for disputes, renegotiation and tenders are hypothetical.",
     status: "Hypothetical, published",
-    where: "Expected values on Operators are tagged Hypothetical and say they are not proof of a saving.",
+    where: "Expected values on Operators and Weight ideas are tagged Hypothetical and say they are not proof of a saving.",
     to: "/operators",
   },
   {
@@ -105,8 +107,8 @@ const LIMITS: Rule[] = [
   {
     rule: "Simplified logistics: one billable distance per site, combined loads only for the same customer and material.",
     status: "Limitation",
-    where: "Transport uses the contract distance. Combined loads are shown as Explained, not as a difference.",
-    to: "/",
+    where: "Combined loads are shown as Explained on Invoices, and Primary ideas (Idea 6) reallocates truck net_kg proportionally across sites using pairwise device_estimated_collected_kg.",
+    to: "/primary-ideas",
   },
   {
     rule: "Contamination is one share per load; the grade is a noisy operator assessment.",
@@ -123,14 +125,14 @@ const LIMITS: Rule[] = [
   {
     rule: "Operator and contract actions use simple published rules.",
     status: "Limitation",
-    where: "Operators gives one suggestion with its reason; you decide, and you can undo it in Decisions.",
+    where: "Operators and Weight ideas give proposals with reasons; you decide, and you can undo any decision in Decisions.",
     to: "/decisions",
   },
   {
     rule: "Scorecard: punctuality and missed visits are your own records; billing and weights need reconciliation.",
     status: "Limitation",
-    where: "On time and missed visits are tagged Observed; invoice lines and weight vs ours are Estimated. Weight vs ours says a gap can come from the device, the weighbridge or a shared truck.",
-    to: "/operators",
+    where: "On time and missed visits are tagged Observed; invoice lines and weight vs ours are Estimated. Secondary ideas (Idea 4) deconvolves vehicle stored-tare gaps from compactor sensor calibration.",
+    to: "/secondary-ideas",
   },
   {
     rule: "Service-quality effects of switching operator are not modelled.",
@@ -144,19 +146,22 @@ const LIMITS: Rule[] = [
     where: "Not used.",
   },
   {
-    rule: "Fill sensors can read falsely high for a few days; the mass reading shows it.",
-    status: "Limitation",
-    where: "Not checked yet. This belongs to the lift checks (premature lifts), which are not built.",
+    rule: "Ram/cardboard bridging (S40) is resolved in the field by pressing multiple times.",
+    status: "Confirmed by Europress judge",
+    where: "We never claim bridging detection as a value driver. Secondary ideas (Idea 1) uses mass_kg strictly for contractual min_charge_cents break-even and MASS_TARGET_TRIGGER payload targets.",
+    to: "/secondary-ideas",
   },
   {
     rule: "Counterfactual savings (Task C) are simulated, not causal evidence.",
     status: "Limitation",
-    where: "Not built yet (Task C).",
+    where: "Secondary ideas (Idea 1) tags MASS_TARGET_TRIGGER savings as Hypothetical and enforces 7-day hygiene and max_days_between_collections.",
+    to: "/secondary-ideas",
   },
   {
     rule: "Maintenance is context only.",
     status: "Limitation",
-    where: "Not used.",
+    where: "Primary ideas (Idea 3) and Secondary ideas (Ideas 4 & 7) cross-check maintenance_work_orders (WEIGHT_RECALIBRATION, WEIGHT_SENSOR_REPLACED, COMPACTION_FORCE_SETTING_INCREASED) to avoid false operator disputes.",
+    to: "/primary-ideas",
   },
   {
     rule: "Timestamps are UTC; local logic uses Europe/Helsinki, including summer time.",

@@ -1,8 +1,16 @@
 from functools import lru_cache
 
-from fakes import real_stack
+from fakes import load, real_stack
 
-from app.models.schemas import ComparisonResponse, CostsResponse, OperatorsResponse
+from app.core.config import Settings
+from app.models.schemas import (
+    ComparisonResponse,
+    CostsResponse,
+    OperatorsResponse,
+    PrimaryIdeasResponse,
+    SecondaryIdeasResponse,
+)
+from app.services.weight_ideas_service import WeightIdeasService
 
 LEVELS = {"high", "low", "not enough data"}
 
@@ -82,3 +90,27 @@ def test_every_operator_measure_and_suggestion_has_a_source():
         check(card["suggestion_why"], card["operator_id"], needs_reason=True)
         for m in card["measures"]:
             check(m["why"], f"{card['operator_id']}.{m['key']}", needs_reason=m["status"] == "CHECK")
+
+
+def test_every_weight_idea_number_has_a_source():
+    comparison, _, _, _ = real_stack()
+    repos = {n: load(n) for n in ("collection_events", "weighbridge_tickets", "devices", "sites", "contracts",
+                                  "contract_versions", "material_classes", "maintenance_work_orders", "decision_cases")}
+    svc = WeightIdeasService(
+        comparison,
+        repos["collection_events"],
+        repos["weighbridge_tickets"],
+        repos["devices"],
+        repos["sites"],
+        repos["contracts"],
+        repos["contract_versions"],
+        repos["material_classes"],
+        repos["maintenance_work_orders"],
+        repos["decision_cases"],
+        comparison.decisions,
+        Settings(),
+    )
+    prim = PrimaryIdeasResponse(**svc.primary_ideas("all")).model_dump()
+    sec = SecondaryIdeasResponse(**svc.secondary_ideas("all")).model_dump()
+    walk(prim)
+    walk(sec)

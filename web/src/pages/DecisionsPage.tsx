@@ -10,6 +10,7 @@ const ACTION_TEXT: Record<string, string> = {
   CORRECT_LINES: "Ask to correct the invoice lines",
   RENEGOTIATE: "Consider renegotiating the contract",
   TENDER: "Consider asking other operators for offers",
+  PREPARE_WEIGHT_ACTION: "Prepare weight-based proposal",
 };
 
 type Load = { state: "loading" } | { state: "failed" } | { state: "ready"; data: DecisionEntry[] };

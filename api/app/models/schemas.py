@@ -171,7 +171,7 @@ class DecisionIn(BaseModel):
 
 class DecisionEntry(BaseModel):
     decision_id: str
-    item_type: Literal["invoice_item", "operator"]
+    item_type: Literal["invoice_item", "operator", "weight_idea"]
     item_id: str
     label: str
     decision: Literal["ok", "dispute_draft", "dispute_sent", "prepare", "not_now", "undo"]
@@ -316,5 +316,250 @@ class OperatorDecisionIn(BaseModel):
 
 class OperatorDecisionOut(DecisionEntry):
     operator_id: str
+    action: str
+    draft: str | None
+
+
+class SortingCandidate(BaseModel):
+    item_id: str
+    device_id: str
+    site_id: str
+    site_name: str
+    customer_id: str
+    equipment_class: str
+    volume_m3: float
+    lifts_count: int
+    total_mass_kg: int
+    measured_density_kg_m3: float
+    nominal_density_kg_m3: float
+    estimated_recyclable_kg: int
+    annual_saving_cents: int
+    status: Literal["CHECK", "GOOD"]
+    europress_hardware: str
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class ResidualPickupRow(BaseModel):
+    item_id: str
+    pickup_id: str
+    device_id: str
+    site_id: str
+    site_name: str
+    date: str | None
+    material: str
+    equipment_class: str
+    pickup_status: str
+    mass_before_kg: int
+    mass_after_kg: int
+    residual_pct: float
+    fill_after_pct: float
+    classification: Literal["PHYSICAL_RESIDUAL", "FROZEN_BIOWASTE_RISK", "CALIBRATION_OFFSET"]
+    classification_label: str
+    wasted_capacity_cents: int
+    europress_service: str
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class CombinedLoadPair(BaseModel):
+    item_id: str
+    weighing_event_id: str
+    date: str | None
+    operator_id: str
+    material: str
+    truck_net_kg: int
+    pickup_a_id: str
+    device_a_id: str
+    site_a_name: str
+    device_a_kg: int
+    naive_a_kg: int
+    proportional_a_kg: int
+    pickup_b_id: str
+    device_b_id: str
+    site_b_name: str
+    device_b_kg: int
+    naive_b_kg: int
+    proportional_b_kg: int
+    shift_kg: int
+    shift_pct: float
+    reallocated_value_cents: int
+    status: Literal["CHECK", "GOOD"]
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class PrimaryIdeasResponse(BaseModel):
+    customer_id: str | None
+    customer_name: str | None
+    customers: list[Option]
+    why: dict[str, Why]
+    idea5_sorting: list[SortingCandidate]
+    idea3_residual: list[ResidualPickupRow]
+    idea6_combined: list[CombinedLoadPair]
+
+
+class MinChargeAndMassRow(BaseModel):
+    item_id: str
+    device_id: str
+    site_name: str
+    material: str
+    collection_policy: str
+    min_charge_lifts: int
+    min_charge_topup_cents: int
+    break_even_mass_kg: int
+    median_mass_before_kg: int
+    candidate_actions: str
+    max_days: int | None
+    annual_saving_cents: int
+    status: Literal["CHECK", "GOOD"]
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class Day0AndCreditRow(BaseModel):
+    item_id: str
+    contract_id: str
+    contract_version_id: str
+    device_id: str
+    site_name: str
+    operator_id: str
+    material: str
+    credit_eligible: bool
+    credit_share_bp: int
+    unshared_or_delayed_lifts: int
+    weight_gap_lifts: int
+    provisional_receipt_kg: int
+    unlocked_annual_cents: int
+    status: Literal["CHECK", "GOOD"]
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class BipartiteDeconvRow(BaseModel):
+    item_id: str
+    source_side: Literal["HAULER_STORED_TARE", "COMPACTOR_SENSOR_CALIBRATION"]
+    source_label: str
+    entity_id: str
+    operator_or_site: str
+    lifts_or_orders: int
+    stored_tare_kg: int | None
+    weighed_tare_kg: int | None
+    avg_weight_gap_kg: int
+    financial_impact_cents: int
+    europress_action: str
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class RightSizerRow(BaseModel):
+    item_id: str
+    device_id: str
+    site_name: str
+    material: str
+    equipment_class: str
+    volume_m3: float
+    lifts_count: int
+    compaction_work_orders: int
+    measured_density_kg_m3: float
+    upgrade_path: str
+    customer_annual_saving_cents: int
+    europress_annual_revenue_cents: int
+    suggestion: str
+    reason: str
+    trail_text: str
+    decision: Literal["prepare", "not_now"] | None = None
+    decision_id: str | None = None
+    decided_at: str | None = None
+    draft: str | None = None
+    why: dict[str, Why]
+
+
+class ServiceTier(BaseModel):
+    tier_id: str
+    name: str
+    price_eur_month: int
+    target_segment: str
+    included_ideas: str
+    customer_net_roi: str
+    why: Why
+
+
+class SensitivityScenario(BaseModel):
+    scenario: str
+    adoption_pct: float
+    realisation_pct: float
+    sensor_noise_pct: float
+    customer_net_benefit_cents: int
+    europress_arr_cents: int
+    europress_net_margin_cents: int
+    payback_months: float
+    why: Why
+
+
+class BusinessCaseBlock(BaseModel):
+    cost_to_serve_cents_month: int
+    payback_months: float
+    fleet_devices_total: int
+    fleet_weighed_devices: int
+    tiers: list[ServiceTier]
+    sensitivity: list[SensitivityScenario]
+    why: dict[str, Why]
+
+
+class SecondaryIdeasResponse(BaseModel):
+    customer_id: str | None
+    customer_name: str | None
+    customers: list[Option]
+    why: dict[str, Why]
+    idea1_mass_trigger: list[MinChargeAndMassRow]
+    idea2_day0_receipt: list[Day0AndCreditRow]
+    idea4_deconvolution: list[BipartiteDeconvRow]
+    idea7_rightsizer: list[RightSizerRow]
+    business_case: BusinessCaseBlock
+
+
+class IdeaDecisionIn(BaseModel):
+    decision: Literal["prepare", "not_now"]
+
+
+class IdeaDecisionOut(DecisionEntry):
+    item_id: str
     action: str
     draft: str | None

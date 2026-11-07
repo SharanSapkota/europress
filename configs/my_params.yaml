@@ -1,0 +1,13 @@
+# Task D commercial parameters — explicit team assumptions (all synthetic/hypothetical)
+subscription_tiers:
+  tier1_audit_receipt_eur_per_device_month: 29.0  # Assumption: ~26% of gross audit/receipt value; payback < 2 months
+  tier2_tonnage_optimizer_eur_per_device_month: 49.0  # Assumption: ~22% of full operational + sorting + combined-load value
+  tier3_duo_upgrade_delta_eur_per_device_month: 110.0  # Assumption: incremental monthly lease for 24-30 m3 DUO vs small COMBI
+  heated_biowaste_floor_addon_eur_per_device_month: 35.0  # Assumption: winter heated floor option on COMBI <=22 m3 biowaste
+  calibration_visit_eur_per_event: 185.0  # Assumption: billable Europress field load-cell calibration visit
+
+economics:
+  cost_to_serve_eur_per_device_month: 8.50  # Assumption: cloud ingestion, cellular telemetry, and remote diagnostics
+  base_adoption_rate: 0.42  # Assumption: 42% adoption among weighed compactors in base case (21% in half-adoption stress test)
+  base_realisation_rate: 0.65  # Assumption: 65% of identified value realised after human approval (32.5% in conservative case)
+  normal_sensor_noise_pct: 3.3  # Dataset target: +-3.3% calibrated device mass accuracy (6.5% in degraded sensor stress test)

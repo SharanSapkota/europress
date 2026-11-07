@@ -8,6 +8,7 @@ from app.services.operator_action_service import OperatorActionService
 from app.services.our_invoice_service import OurInvoiceService
 from app.services.scorecard_service import ScorecardService
 from app.services.suggestion_service import SuggestionService
+from app.services.weight_ideas_service import WeightIdeasService
 
 
 def decision_service() -> DecisionService:
@@ -43,3 +44,12 @@ def scorecard_service() -> ScorecardService:
     return ScorecardService(comparison, action_service(comparison), SuggestionService(settings), r.PickupRepository(db),
                             r.TicketRepository(db), r.DeviceRepository(db), r.SiteRepository(db), r.ContractRepository(db),
                             r.OperatorRepository(db), comparison.decisions, settings)
+
+
+def weight_ideas_service() -> WeightIdeasService:
+    db = get_db()
+    comparison = comparison_service()
+    return WeightIdeasService(comparison, r.PickupRepository(db), r.TicketRepository(db), r.DeviceRepository(db),
+                              r.SiteRepository(db), r.ContractRepository(db), r.ContractVersionRepository(db),
+                              r.MaterialRepository(db), r.MaintenanceRepository(db), r.DecisionCaseRepository(db),
+                              comparison.decisions, settings)

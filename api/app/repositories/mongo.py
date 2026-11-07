@@ -167,6 +167,16 @@ class OperatorRepository(_CachedRepo):
     key = "operator_id"
 
 
+class MaintenanceRepository(_CachedRepo):
+    name = "maintenance_work_orders"
+    key = "work_order_id"
+
+
+class DecisionCaseRepository(_CachedRepo):
+    name = "decision_cases"
+    key = "case_id"
+
+
 class TelemetryDailyRepository(_Repo):
     name = "telemetry_daily_summary"
     key = "device_id"
