@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, NavLink, Route, Routes } from "react-router";
 import { CostsPage } from "./pages/CostsPage";
+import { DataPage } from "./pages/DataPage";
 import { DecisionsPage } from "./pages/DecisionsPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
 import { OperatorsPage } from "./pages/OperatorsPage";
@@ -30,14 +31,20 @@ function App() {
           <Route path="/costs" element={<CostsPage />} />
           <Route path="/operators" element={<OperatorsPage />} />
           <Route path="/decisions" element={<DecisionsPage />} />
+          <Route path="/data" element={<DataPage />} />
           <Route path="*" element={<InvoicesPage />} />
         </Routes>
       </main>
       <footer className="page footer">
         <span>Our amounts are estimates. Demo data.</span>
-        <Link to="/decisions" className="footer-link">
-          Decisions
-        </Link>
+        <span className="footer-links">
+          <Link to="/data" className="footer-link">
+            About the data
+          </Link>
+          <Link to="/decisions" className="footer-link">
+            Decisions
+          </Link>
+        </span>
       </footer>
     </BrowserRouter>
   );

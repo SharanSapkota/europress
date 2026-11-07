@@ -832,3 +832,30 @@ button:disabled {
 .cause {
   margin: 0 0 var(--space-4);
 }
+
+.footer-links {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.data-section {
+  margin-top: var(--space-5);
+}
+
+.data-rules {
+  min-width: 720px;
+}
+
+.data-rules td:first-child {
+  width: 38%;
+}
+
+.data-rules td:nth-child(2) {
+  width: 20%;
+}
+
+main a {
+  color: var(--primary);
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
