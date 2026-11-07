@@ -1,1 +1,7 @@
 .env
+api/.venv/
+__pycache__/
+.pytest_cache/
+api/exports/
+web/node_modules/
+web/dist/
