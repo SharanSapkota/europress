@@ -28,6 +28,7 @@ export interface OperatorCard {
   suggestion_why: Why;
   value_cents: number | null;
   draft: string | null;
+  request_draft: string | null;
   decision: OperatorDecision | null;
   decision_id: string | null;
   decided_at: string | null;
@@ -57,9 +58,9 @@ export interface OperatorDecisionResult {
 
 export const getOperators = (query: string) => request<Operators>(`/api/operators${query ? `?${query}` : ""}`);
 
-export const postOperatorDecision = (id: string, decision: OperatorDecision, query: string) =>
+export const postOperatorDecision = (id: string, decision: OperatorDecision, query: string, message?: string) =>
   request<OperatorDecisionResult>(`/api/operators/${encodeURIComponent(id)}/decision${query ? `?${query}` : ""}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ decision }),
+    body: JSON.stringify({ decision, message }),
   });

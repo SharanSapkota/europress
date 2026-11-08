@@ -1,12 +1,20 @@
 export type Status = "MATCH" | "CHECK" | "EXPLAINED" | "NO_DATA" | "DISPUTED";
 export type Decision = "ok" | "dispute_draft" | "dispute_sent";
+export type View = "check" | "disputed" | "explained" | "match";
 
 export interface Why {
   what: string;
   source: string;
-  confidence: "high" | "low" | "not enough data";
+  confidence: "high" | "medium" | "low" | "not enough data";
   reason: string | null;
   evidence: "observed" | "estimated" | "simulated" | "hypothetical";
+}
+
+export interface DisputeRef {
+  invoice_id: string | null;
+  line_no: number | null;
+  invoice_line_id: string | null;
+  operator_email: string | null;
 }
 
 export interface Trail {
@@ -62,11 +70,18 @@ export interface UnmatchedLine extends Item {
   why: Record<string, Why>;
   cause_text: string;
   trail: Trail;
+  needs_attention: boolean;
+  short_reason: string | null;
+  dispute: DisputeRef;
   found_status: Status;
   decision: Decision | null;
   decision_id: string | null;
   decided_at: string | null;
   disputed_at: string | null;
+  view: View;
+  ours_note: string;
+  billed_note: string;
+  dispute_message: string;
 }
 
 export interface PickupComparison {
@@ -106,6 +121,9 @@ export interface PickupComparison {
   why: Record<string, Why>;
   cause_text: string | null;
   trail: Trail;
+  needs_attention: boolean;
+  short_reason: string | null;
+  dispute: DisputeRef;
   found_status: Status;
   items: Item[];
   lines: LineComparison[];
@@ -113,6 +131,10 @@ export interface PickupComparison {
   decision_id: string | null;
   decided_at: string | null;
   disputed_at: string | null;
+  view: View;
+  ours_note: string;
+  billed_note: string;
+  dispute_message: string;
 }
 
 export interface Comparison {
@@ -124,6 +146,8 @@ export interface Comparison {
   operator_ids: string[];
   operator_names: string[];
   why: Record<"ours" | "operator" | "difference", Why>;
+  attention_count: number;
+  match_count: number;
   totals: {
     ours_cents: number;
     operator_cents: number;
@@ -132,6 +156,7 @@ export interface Comparison {
     monthly_fixed_cents: number;
   };
   counts: Record<Status, number>;
+  view_counts: Record<View, number>;
   line_counts: Record<"MATCHED" | "DUPLICATE" | "NO_LIFT", number>;
   unmatched_lines: UnmatchedLine[];
   rows: PickupComparison[];
@@ -143,8 +168,13 @@ export interface DecisionResult {
   created_at: string;
 }
 
+export const scope = { customer_id: "", site_id: "" };
+
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const u = new URL(url, window.location.origin);
+  if (scope.customer_id) u.searchParams.set("customer_id", scope.customer_id);
+  if (scope.site_id) u.searchParams.set("site_id", scope.site_id);
+  const res = await fetch(u.pathname + u.search, init);
   if (!res.ok) throw new Error(`${res.status}`);
   return (await res.json()) as T;
 }
@@ -154,7 +184,14 @@ export const getPeriods = () => request<string[]>("/api/invoices/periods");
 export const getComparison = (period: string) =>
   request<Comparison>(`/api/invoices/comparison?period=${encodeURIComponent(period)}`);
 
-export const postDecision = (id: string, decision: Decision) =>
+export const postQuestion = (id: string, message: string, pickup: boolean) =>
+  request<DecisionResult>(`/api/invoices/${pickup ? "comparison" : "items"}/${encodeURIComponent(id)}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision: "question", message }),
+  });
+
+export const postDecision = (id: string, decision: Decision | "question") =>
   request<DecisionResult>(`/api/invoices/items/${encodeURIComponent(id)}/decision`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

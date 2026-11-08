@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.controllers.deps import scorecard_service
+from app.controllers.deps import unscoped
 
 METRICS = ["n_operator_jobs", "n_completed_lifts", "on_time_rate", "missed_visit_rate", "weighbridge_shared_7d_rate",
            "median_share_lag_days", "billing_overcharge_pct", "billing_undercharge_pct", "discrepant_line_rate",
@@ -13,7 +13,7 @@ METRICS = ["n_operator_jobs", "n_completed_lifts", "on_time_rate", "missed_visit
 
 def export(out: Path) -> int:
     out.mkdir(parents=True, exist_ok=True)
-    rows = scorecard_service().scorecard_rows()
+    rows = unscoped().scorecard.scorecard_rows()
     with (out / "my_scorecard.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["operator_id", "region_code", "month"] + METRICS)

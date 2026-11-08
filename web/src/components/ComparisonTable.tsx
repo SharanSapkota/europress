@@ -1,93 +1,126 @@
 import { Fragment, useState } from "react";
-import type { Decision, LineComparison, Status, Trail, Why as WhyInfo } from "../api/invoices";
-import { day, eur, material, signedEur } from "../format";
+import type { Decision, LineComparison, Status, Trail, View, Why as WhyInfo } from "../api/invoices";
+import { day, eur, material as materialName, signedEur } from "../format";
+import { MessageModal } from "./MessageModal";
 import { RowDetails } from "./RowDetails";
-import { StatusChip } from "./StatusChip";
-import { Why } from "./Why";
+import { Chip, DataTable, InfoIcon, TableHeader } from "./ui";
 
 export interface TableRow {
   id: string;
   date: string | null;
   material: string | null;
-  ours: { amount: number | null; sub: string };
-  operator: { amount: number; sub: string };
+  ours: { amount: number | null; note: string; why?: WhyInfo };
+  operator: { amount: number; note: string };
   difference: number;
   status: Status;
+  view: View;
   reason: string;
+  shortReason: string | null;
   confidence: string;
   sources: [string, string][];
   weight: { ours: string; operator: string } | null;
   lines: LineComparison[];
-  draft: string | null;
   decision: Decision | null;
-  decidedAt: string | null;
-  why: Record<string, WhyInfo>;
+  disputedAt: string | null;
   causeText: string | null;
   trail: Trail;
+  dispute: { invoiceId: string | null; message: string; pickup: boolean };
 }
 
 interface Props {
   rows: TableRow[];
-  matchRows: TableRow[];
-  onDecide: (id: string, decision: Decision) => Promise<void>;
+  restRows: TableRow[];
+  counts: { match: number; explained: number };
+  onQuestion: (row: TableRow, message: string) => Promise<void>;
 }
 
-export const DECISION_TEXT: Record<Decision, string> = {
-  ok: "Marked as OK",
-  dispute_draft: "Question prepared",
-  dispute_sent: "Question sent",
-};
+const COLS = 5;
 
-export function ComparisonTable({ rows, matchRows, onDecide }: Props) {
+function DisputeModal({ row, onClose, onSave }: { row: TableRow; onClose: () => void; onSave: (message: string) => Promise<void> }) {
+  const sub = [row.dispute.invoiceId && `Invoice ${row.dispute.invoiceId}`, row.material && materialName(row.material), day(row.date)]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <MessageModal
+      id={row.id}
+      title="Dispute this lift"
+      sub={sub}
+      strip={[
+        { label: "Should cost", value: row.ours.amount === null ? "–" : eur(row.ours.amount) },
+        { label: "Billed", value: eur(row.operator.amount) },
+        { label: "Difference", value: signedEur(row.difference), check: true },
+      ]}
+      message={row.dispute.message}
+      subject={`Invoice ${row.dispute.invoiceId ?? ""}: please check the lift on ${day(row.date)}`}
+      onClose={onClose}
+      onSave={onSave}
+    />
+  );
+}
+
+export function ComparisonTable({ rows, restRows, counts, onQuestion }: Props) {
   const [open, setOpen] = useState<string | null>(null);
-  const [showMatches, setShowMatches] = useState(false);
+  const [dispute, setDispute] = useState<TableRow | null>(null);
+  const [showRest, setShowRest] = useState(false);
+
+  const action = (r: TableRow) => {
+    if (r.view === "disputed")
+      return (
+        <span className="disputed-cell">
+          <Chip tone="disputed">Disputed</Chip>
+          {r.disputedAt && <span className="sub-small">Sent {day(r.disputedAt.slice(0, 10))}</span>}
+        </span>
+      );
+    if (r.view !== "check") return null;
+    return (
+      <button type="button" className="btn btn-primary" onClick={() => setDispute(r)}>
+        Submit a dispute
+      </button>
+    );
+  };
 
   const renderRow = (r: TableRow) => {
     const expanded = open === r.id;
     const detailsId = `details-${r.id}`;
+    const flagged = r.view === "check" || r.view === "disputed";
     return (
       <Fragment key={r.id}>
         <tr className={expanded ? "row is-open" : "row"}>
-          <td className="muted">{day(r.date)}</td>
-          <td className="strong">{material(r.material)}</td>
           <td>
-            <span className="amount">
+            <span className="cell-date">{day(r.date)}</span>
+            {r.shortReason && <span className="sub-small">{r.shortReason}</span>}
+          </td>
+          <td>
+            <span className="amount amount-line">
               {r.ours.amount === null ? "–" : eur(r.ours.amount)}
-              {r.ours.amount !== null && <Why info={r.why.ours} label="our invoice" />}
+              {r.ours.why && <InfoIcon info={r.ours.why} label={`should cost on ${day(r.date)}`} variant="source" />}
             </span>
-            <span className="sub">{r.ours.sub}</span>
+            <span className="sub-small">{r.ours.note}</span>
           </td>
           <td>
-            <span className="amount">
-              <span className={r.status === "DISPUTED" ? "disputed-amount" : undefined}>{eur(r.operator.amount)}</span>
-              <Why info={r.why.operator} label="operator invoice" />
-            </span>
-            <span className="sub">{r.operator.sub}</span>
+            <span className={r.view === "disputed" ? "amount disputed-amount" : "amount"}>{eur(r.operator.amount)}</span>
+            <span className="sub-small">{r.operator.note}</span>
           </td>
-          <td className="amount">
-            {signedEur(r.difference)}
-            <Why info={r.why.difference} label="difference" />
-          </td>
-          <td>
-            <StatusChip status={r.status} />
-            {r.decision && <span className="decision">{DECISION_TEXT[r.decision]}</span>}
-          </td>
+          <td className={flagged ? "amount diff diff-check" : "amount diff"}>{signedEur(r.difference)}</td>
           <td className="action">
-            <button
-              type="button"
-              className="link"
-              aria-expanded={expanded}
-              aria-controls={detailsId}
-              onClick={() => setOpen(expanded ? null : r.id)}
-            >
-              {expanded ? "Hide" : "Details"}
-            </button>
+            <span className="action-cell">
+              {action(r)}
+              <button
+                type="button"
+                className="link link-small"
+                aria-expanded={expanded}
+                aria-controls={detailsId}
+                onClick={() => setOpen(expanded ? null : r.id)}
+              >
+                {expanded ? "Hide" : "Details"}
+              </button>
+            </span>
           </td>
         </tr>
         {expanded && (
           <tr className="details-row" id={detailsId}>
-            <td colSpan={7}>
-              <RowDetails row={r} onDecide={onDecide} />
+            <td colSpan={COLS}>
+              <RowDetails row={r} />
             </td>
           </tr>
         )}
@@ -96,37 +129,40 @@ export function ComparisonTable({ rows, matchRows, onDecide }: Props) {
   };
 
   return (
-    <div className="table-box">
-      <table className="comparison">
-        <thead>
-          <tr>
-            <th scope="col">Date</th>
-            <th scope="col">Material</th>
-            <th scope="col">Our invoice</th>
-            <th scope="col">Operator invoice</th>
-            <th scope="col">Difference</th>
-            <th scope="col">Status</th>
-            <th scope="col"><span className="visually-hidden">Details</span></th>
-          </tr>
-        </thead>
-        <tbody>{rows.map(renderRow)}</tbody>
-        {matchRows.length > 0 && (
-          <tbody>
-            <tr className="match-toggle">
-              <td colSpan={7}>
-                <button type="button" className="toggle" aria-expanded={showMatches} onClick={() => setShowMatches(!showMatches)}>
-                  <span aria-hidden="true">{showMatches ? "▾" : "▸"}</span> {matchRows.length}{" "}
-                  {matchRows.length === 1 ? "pickup matches" : "pickups match"}
-                </button>
+    <DataTable>
+      {dispute && <DisputeModal row={dispute} onClose={() => setDispute(null)} onSave={(m) => onQuestion(dispute, m)} />}
+      <table className="comparison invoices-table">
+        <TableHeader cells={["Date", "Should cost", "Billed", "Difference", <span className="visually-hidden">Action</span>]} />
+        <tbody>
+          {rows.length ? (
+            rows.map(renderRow)
+          ) : (
+            <tr>
+              <td colSpan={COLS} className="status-text">
+                Nothing to check this month.
               </td>
             </tr>
-            {showMatches && matchRows.map(renderRow)}
+          )}
+        </tbody>
+        {restRows.length > 0 && (
+          <tbody>
+            <tr className="table-foot">
+              <td colSpan={COLS}>
+                <span className="table-foot-inner">
+                  <span className="strong">
+                    {counts.match} {counts.match === 1 ? "pickup matches" : "pickups match"} · {counts.explained} explained
+                  </span>
+                  <button type="button" className="link-small show-more" aria-expanded={showRest} onClick={() => setShowRest(!showRest)}>
+                    {showRest ? "Hide" : "Show"}{" "}
+                    <span aria-hidden="true">›</span>
+                  </button>
+                </span>
+              </td>
+            </tr>
+            {showRest && restRows.map(renderRow)}
           </tbody>
         )}
       </table>
-      {[...rows, ...matchRows].some((r) => r.status === "DISPUTED") && (
-        <p className="note">Underlined amounts are disputed: you told us you sent the question to the operator.</p>
-      )}
-    </div>
+    </DataTable>
   );
 }

@@ -2,17 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getComparison,
   getPeriods,
-  postDecision,
+  postQuestion,
   type Comparison,
-  type Decision,
   type PickupComparison,
   type UnmatchedLine,
 } from "../api/invoices";
 import { ComparisonTable, type TableRow } from "../components/ComparisonTable";
 import { TotalsStrip } from "../components/TotalsStrip";
+import { FootNote, InfoLine, PageTitle, StatRow, StatTile } from "../components/ui";
 import { month, t } from "../format";
 
-const SOURCE_TEXT = { ticket: "weighbridge ticket", invoice: "invoice quantity", device: "device estimate" } as const;
+const SOURCE_TEXT = { ticket: "scale ticket", invoice: "invoice quantity", device: "device estimate" } as const;
 const SOURCE_LABELS: Record<string, string> = {
   our_amount: "Our invoice",
   our_weight: "Our weight",
@@ -36,28 +36,28 @@ function ourWeight(r: PickupComparison) {
 }
 
 function fromPickup(r: PickupComparison): TableRow {
-  const billed = r.operator.billed_kg === null ? "No weight billed" : `${t(r.operator.billed_kg)} billed`;
   return {
     id: r.pickup_id,
     date: r.date,
     material: r.material,
-    ours: { amount: r.ours.amount_cents, sub: ourWeight(r) },
-    operator: { amount: r.operator.amount_cents, sub: r.lines.some((l) => l.operator) ? billed : "Not on the invoice" },
+    ours: { amount: r.ours.amount_cents, note: r.ours_note, why: r.why.ours },
+    operator: { amount: r.operator.amount_cents, note: r.billed_note },
     difference: r.difference_cents,
     status: r.status,
+    view: r.view,
     reason: r.reason,
+    shortReason: r.short_reason,
     confidence: r.ours.confidence,
     sources: sourceList(r.sources),
     weight: r.ours.weight_kg !== null || r.operator.billed_kg !== null
       ? { ours: ourWeight(r), operator: r.operator.billed_kg === null ? "Not billed by weight" : t(r.operator.billed_kg) }
       : null,
     lines: r.lines,
-    draft: r.draft_question,
     decision: r.decision,
-    decidedAt: r.decided_at,
-    why: r.why,
+    disputedAt: r.disputed_at,
     causeText: r.cause_text,
     trail: r.trail,
+    dispute: { invoiceId: r.invoice_ids[0] ?? null, message: r.dispute_message, pickup: true },
   };
 }
 
@@ -66,21 +66,22 @@ function fromUnmatched(u: UnmatchedLine): TableRow {
     id: u.entity_id ?? u.label,
     date: u.service_date,
     material: null,
-    ours: { amount: null, sub: "No pickup found" },
-    operator: { amount: u.euros_at_stake_cents, sub: u.label },
+    ours: { amount: null, note: u.ours_note },
+    operator: { amount: u.euros_at_stake_cents, note: u.billed_note },
     difference: u.euros_at_stake_cents,
     status: u.status,
+    view: u.view,
     reason: u.reason,
+    shortReason: u.short_reason,
     confidence: u.confidence,
     sources: sourceList(u.sources),
     weight: null,
     lines: [],
-    draft: u.draft_question,
     decision: u.decision,
-    decidedAt: u.decided_at,
-    why: { operator: u.why.amount, difference: u.why.amount },
+    disputedAt: u.disputed_at,
     causeText: u.cause_text,
     trail: u.trail,
+    dispute: { invoiceId: u.invoice_id, message: u.dispute_message, pickup: false },
   };
 }
 
@@ -89,9 +90,9 @@ function plural(n: number, one: string, many: string) {
 }
 
 function scopeText(data: Comparison) {
-  const sites = data.site_ids.length === 1 ? data.site_ids[0] : plural(data.site_ids.length, "site", "sites");
-  const ops = data.operator_ids.length === 1 ? `Operator: ${data.operator_ids[0]}` : plural(data.operator_ids.length, "operator", "operators");
-  return `${month(data.period)} · ${sites} · ${ops}`;
+  const sites = plural(data.site_ids.length, "site", "sites");
+  const ops = plural(data.operator_ids.length, "operator", "operators");
+  return [data.customer_name, sites, ops].filter(Boolean).join(" · ");
 }
 
 type Load = { state: "loading" } | { state: "failed" } | { state: "ready"; data: Comparison };
@@ -100,7 +101,6 @@ export function InvoicesPage() {
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string | null>(null);
   const [load, setLoad] = useState<Load>({ state: "loading" });
-  const [decisions, setDecisions] = useState<Record<string, { decision: Decision; at: string }>>({});
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -128,48 +128,40 @@ export function InvoicesPage() {
     };
   }, [period, attempt]);
 
-  const onDecide = useCallback(async (id: string, decision: Decision) => {
-    const saved = await postDecision(id, decision);
-    setDecisions((d) => ({ ...d, [id]: { decision, at: saved.created_at } }));
+  const onQuestion = useCallback(async (row: TableRow, message: string) => {
+    await postQuestion(row.id, message, row.dispute.pickup);
+    setAttempt((a) => a + 1);
   }, []);
 
   const tables = useMemo(() => {
     if (load.state !== "ready") return null;
-    const withDecision = (r: TableRow): TableRow => {
-      const d = decisions[r.id];
-      if (!d) return r;
-      const status = d.decision === "dispute_sent" ? "DISPUTED" : r.status === "DISPUTED" ? "CHECK" : r.status;
-      return { ...r, decision: d.decision, decidedAt: d.at, status };
-    };
-    const pickups = load.data.rows.map(fromPickup).map(withDecision);
-    const unmatched = load.data.unmatched_lines.map(fromUnmatched).map(withDecision);
-    const order = ["CHECK", "DISPUTED", "NO_DATA", "EXPLAINED"];
-    const rows = [...pickups.filter((r) => r.status !== "MATCH"), ...unmatched].sort(
-      (a, b) => order.indexOf(a.status) - order.indexOf(b.status) || (a.date ?? "").localeCompare(b.date ?? ""),
-    );
-    return { rows, matchRows: pickups.filter((r) => r.status === "MATCH") };
-  }, [load, decisions]);
+    const all = [...load.data.rows.map(fromPickup), ...load.data.unmatched_lines.map(fromUnmatched)]
+      .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || a.id.localeCompare(b.id));
+    const flagged = (r: TableRow) => r.view === "check" || r.view === "disputed";
+    return { rows: all.filter(flagged), restRows: all.filter((r) => !flagged(r)) };
+  }, [load]);
 
   return (
     <>
-      <div className="title-row">
-        <div>
-          <h1>Invoice comparison</h1>
-          {load.state === "ready" && load.data.period && <p className="muted">{scopeText(load.data)}</p>}
-        </div>
-        {periods.length > 0 && (
-          <label className="month-select">
-            <span className="label">Month</span>
-            <select value={period ?? ""} onChange={(e) => setPeriod(e.target.value)}>
-              {periods.map((p) => (
-                <option key={p} value={p}>
-                  {month(p)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
+      <PageTitle
+        title="Invoice comparison"
+        subtitle="What each pickup should cost under your contract, next to what the operator billed."
+        context={load.state === "ready" && load.data.period ? scopeText(load.data) : undefined}
+        right={
+          periods.length > 0 && (
+            <label className="month-select">
+              <span className="label">Month</span>
+              <select value={period ?? ""} onChange={(e) => setPeriod(e.target.value)}>
+                {periods.map((p) => (
+                  <option key={p} value={p}>
+                    {month(p)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )
+        }
+      />
 
       {load.state === "loading" && <p className="status-text" role="status">Loading</p>}
 
@@ -183,37 +175,29 @@ export function InvoicesPage() {
       )}
 
       {load.state === "ready" && tables && (
-        tables.rows.length + tables.matchRows.length === 0 ? (
+        tables.rows.length + tables.restRows.length === 0 ? (
           <p className="status-text">No invoices for this month.</p>
         ) : (
           <>
             <TotalsStrip totals={load.data.totals} why={load.data.why} />
-            <Summary data={load.data} />
-            <ComparisonTable rows={tables.rows} matchRows={tables.matchRows} onDecide={onDecide} />
+            <StatRow>
+              <StatTile label="To check" value={String(load.data.view_counts.check)} check={load.data.view_counts.check > 0} />
+              <StatTile label="Disputed" value={String(load.data.view_counts.disputed)} />
+              <StatTile label="Explained" value={String(load.data.view_counts.explained)} />
+              <StatTile label="Match" value={String(load.data.view_counts.match)} />
+            </StatRow>
+            <InfoLine>A difference is not proof of a mistake. You decide what to do.</InfoLine>
+            <ComparisonTable
+              rows={tables.rows}
+              restRows={tables.restRows}
+              counts={{ match: load.data.view_counts.match, explained: load.data.view_counts.explained }}
+              onQuestion={onQuestion}
+            />
           </>
         )
       )}
+      <FootNote>Suggestions only. Nothing is sent without your approval. Demo data, fictional customer.</FootNote>
     </>
-  );
-}
-
-function Summary({ data }: { data: Comparison }) {
-  const check = data.counts.CHECK + data.unmatched_lines.filter((u) => u.status === "CHECK").length;
-  const disputed = data.counts.DISPUTED + data.unmatched_lines.filter((u) => u.status === "DISPUTED").length;
-  const parts = [
-    plural(check, "item to check", "items to check"),
-    `${data.counts.EXPLAINED} explained`,
-    `${data.counts.NO_DATA} without enough data`,
-    ...(disputed ? [`${disputed} disputed`] : []),
-  ];
-  return (
-    <div className="summary">
-      <p className="summary-line">{check + disputed + data.counts.EXPLAINED + data.counts.NO_DATA === 0 ? "Everything matches." : `${parts.join(", ")}.`}</p>
-      <p className="muted">
-        We compare the invoice we calculate from your weights and contract with the invoice from your waste operator. A
-        difference is not proof of a mistake.
-      </p>
-    </div>
   );
 }
 
@@ -231,6 +215,9 @@ function emptyComparison(period: string): Comparison {
     why: { ours: NO_WHY, operator: NO_WHY, difference: NO_WHY },
     totals: { ours_cents: 0, operator_cents: 0, difference_cents: 0, unmatched_cents: 0, monthly_fixed_cents: 0 },
     counts: { MATCH: 0, CHECK: 0, EXPLAINED: 0, NO_DATA: 0, DISPUTED: 0 },
+    view_counts: { check: 0, disputed: 0, explained: 0, match: 0 },
+    attention_count: 0,
+    match_count: 0,
     line_counts: { MATCHED: 0, DUPLICATE: 0, NO_LIFT: 0 },
     unmatched_lines: [],
     rows: [],

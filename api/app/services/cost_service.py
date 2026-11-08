@@ -20,6 +20,10 @@ def eur(cents: int) -> str:
     return _eur(cents).replace(" ", "\u00a0")
 
 
+def site_label(name: str | None) -> str:
+    return (name or "").split(" (")[0]
+
+
 def material_name(m: str | None) -> str:
     return (m or "waste").replace("_", " ").capitalize()
 
@@ -67,9 +71,10 @@ class CostService:
 
     def costs(self, months: int = 3, customer_id: str | None = None, period: str | None = None,
               start: str | None = None, end: str | None = None) -> dict:
-        cid = self.comparison.customer_id(customer_id)
+        everyone = customer_id == "all"
+        cid = None if everyone else self.comparison.customer_id(customer_id)
         chosen = resolve(self.comparison.data_months(), period, start, end) if period or start or end else months
-        periods, rows, _ = recent_rows(self.comparison, chosen, cid)
+        periods, rows, _ = recent_rows(self.comparison, chosen, cid, everyone)
         return self.summarize(rows, periods, cid)
 
     def _daily(self, device_ids: list[str], periods: list[str]) -> dict[str, list[dict]]:
@@ -93,8 +98,21 @@ class CostService:
         site_ids = sorted({r["site_id"] for r in rows if r["site_id"]})
         names = self.comparison.names(site_ids, [], cid)
         return {"customer_id": cid, "customer_name": names["customer_name"], "site_names": names["site_names"],
-                "months": len(periods), "periods": periods, "headline": self.headline(containers),
+                "site_count": len(site_ids), "months": len(periods), "periods": periods,
+                "headline": self.headline(containers), "highlight": self.highlight(containers),
                 "containers": containers}
+
+    def highlight(self, containers: list[dict]) -> dict | None:
+        top = max((c for c in containers if c["ratio"] is not None), key=lambda c: c["ratio"], default=None)
+        if not top:
+            return None
+        where = f"{top['name']} at {top['site_label']}" if top["site_label"] else top["name"]
+        if top["ratio"] < self.s.cost_ratio_check:
+            return {"ratio": top["ratio"], "sentence": "All containers are in the normal range of your contract.",
+                    "reason": None, "device_id": top["device_id"]}
+        return {"ratio": top["ratio"], "device_id": top["device_id"],
+                "sentence": f"{where} costs {top['ratio']:.1f} times the normal rate in your contract.",
+                "reason": f"Main reason: {top['short_reason']}." if top["short_reason"] else None}
 
     def headline(self, containers: list[dict]) -> str:
         worst = next((c for c in containers if c["ratio"] is not None), None)
@@ -121,6 +139,7 @@ class CostService:
         return {
             "device_id": device_id, "contract_id": latest["contract_id"], "material": latest["material"],
             "name": material_name(latest["material"]), "site_name": site.get("site_name"),
+            "site_label": site_label(site.get("site_name")) or None, "short_reason": self.short_reason(rows),
             "cost_per_t_cents": per_t, "benchmark_cents_per_t": bench, "ratio": ratio,
             "ratio_label": self.ratio_label(ratio),
             "status": "CHECK" if ratio is not None and ratio >= self.s.cost_ratio_check else "NORMAL",
@@ -232,6 +251,15 @@ class CostService:
         return {"low_fill": (low_fill, {"fill": fill}), "min_charge": (sum(mins), {"n": len(mins)}),
                 "surcharges": (sum(extra.values()), {"top": max(extra, key=extra.get) if extra else None}),
                 "low_credit": (lost, {})}
+
+    def short_reason(self, rows: list[dict]) -> str | None:
+        cause, (cents, _) = max(self.causes(rows).items(), key=lambda kv: kv[1][0])
+        if cents <= 0:
+            return None
+        return {"low_fill": "pickups when the container is far from full",
+                "min_charge": "light pickups that trigger the minimum charge",
+                "surcharges": "surcharges and extra fees",
+                "low_credit": "a lower material credit because of the quality grade"}[cause]
 
     def main_reason(self, rows: list[dict], device: dict) -> str:
         cause, (cents, info) = max(self.causes(rows).items(), key=lambda kv: kv[1][0])

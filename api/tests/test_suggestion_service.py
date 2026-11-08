@@ -3,7 +3,8 @@ from app.services.suggestion_service import SuggestionService
 
 GOOD = {k: "GOOD" for k in ("on_time", "missed_visits", "tickets_shared", "lines_to_check", "weight_vs_ours")}
 M = {"on_time_rate": 0.69, "missed_visits": 0, "tickets_shared_rate": 0.45, "median_share_lag_days": 23,
-     "lines_to_check": 4, "strong_lines": 3, "invoice_lines": 64, "weight_gap_median_pct": 6.0}
+     "lines_to_check": 4, "strong_lines": 3, "invoice_lines": 64, "weight_gap_median_pct": 6.0,
+     "weighbridge_shared_7d_rate": 0.45, "weight_bias_pct": 6.0}
 S = SuggestionService(Settings())
 WORDS = ("fraud", "error", "overcharge")
 
@@ -33,9 +34,9 @@ def test_priority_order():
 
 def test_why_names_the_number_and_drafts_are_polite():
     tip = action({"tickets_shared": "CHECK"})
-    assert tip["title"] == "Ask for the missing scale tickets." and "45%" in tip["why"] and tip["why"].endswith(".")
+    assert tip["title"] == "Ask for the missing scale tickets." and "45 %" in tip["why"] and tip["why"].endswith(".")
     assert "3 of 64" in action({"lines_to_check": "CHECK"})["why"]
-    assert "69%" in action({"on_time": "CHECK"})["why"]
+    assert "69 %" in action({"on_time": "CHECK"})["why"]
     for a in ("REQUEST_TICKETS", "CORRECT_LINES", "RENEGOTIATE", "TENDER"):
         text = S.draft(a, "Hauler", M)
         assert text.startswith("Hello Hauler") and "Thank you" in text

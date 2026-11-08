@@ -1,97 +1,105 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-import { getOperators, postOperatorDecision, type OperatorCard, type OperatorDecision, type Operators } from "../api/operators";
-import { Why } from "../components/Why";
-import { eur } from "../format";
-
-const PERIODS: [string, string][] = [
-  ["all", "All months"],
-  ["3m", "Last 3 months"],
-  ["6m", "Last 6 months"],
-  ["12m", "Last 12 months"],
-];
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
+import { getOperators, postOperatorDecision, type OperatorCard, type Operators } from "../api/operators";
+import { MessageModal } from "../components/MessageModal";
+import { Chip, FootNote, InfoIcon, PageTitle } from "../components/ui";
+import { month } from "../format";
 
 type Load = { state: "loading" } | { state: "failed" } | { state: "ready"; data: Operators };
+
+const PERIOD_TEXT: Record<string, string> = { "3m": "last 3 months", all: "all months", custom: "chosen months" };
 
 export function OperatorsPage() {
   const [params, setParams] = useSearchParams();
   const [load, setLoad] = useState<Load>({ state: "loading" });
-  const [options, setOptions] = useState<Operators["options"] | null>(null);
+  const [months, setMonths] = useState<string[]>([]);
   const [attempt, setAttempt] = useState(0);
-  const query = params.toString();
-  const period = params.get("period") ?? "all";
+  const [asking, setAsking] = useState<OperatorCard | null>(null);
+  const mode = params.get("from") ? "custom" : params.get("period") ?? "3m";
+  const query = new URLSearchParams(params);
+  if (!query.get("period") && !query.get("from")) query.set("period", "3m");
+  if (query.get("from")) query.delete("period");
+  const q = query.toString();
 
   useEffect(() => {
     let live = true;
     setLoad({ state: "loading" });
-    getOperators(query)
+    getOperators(q)
       .then((data) => {
         if (!live) return;
-        setOptions(data.options);
+        setMonths(data.options.months);
         setLoad({ state: "ready", data });
       })
       .catch(() => live && setLoad({ state: "failed" }));
     return () => {
       live = false;
     };
-  }, [query, attempt]);
+  }, [q, attempt]);
 
-  const choose = (key: string, value: string) => {
+  const setMode = (value: string) => {
+    const next = new URLSearchParams();
+    if (value === "custom" && months.length) {
+      next.set("from", months[Math.max(0, months.length - 3)]);
+      next.set("to", months[months.length - 1]);
+    } else if (value !== "3m") next.set("period", value);
+    setParams(next);
+  };
+  const setRange = (key: "from" | "to", value: string) => {
     const next = new URLSearchParams(params);
-    if (value) next.set(key, value);
-    else next.delete(key);
-    if (key === "customer_id") next.delete("site_id");
+    next.set(key, value);
     setParams(next);
   };
 
-  const customer = params.get("customer_id") ?? (load.state === "ready" ? load.data.customer_id ?? "" : "");
+  const decide = async (op: OperatorCard, decision: "prepare" | "not_now", message?: string) => {
+    await postOperatorDecision(op.operator_id, decision, q, message);
+    setAttempt((a) => a + 1);
+  };
 
   return (
     <>
-      <h1>Operators</h1>
-      <p className="muted subtitle">
-        How your waste operators perform · {PERIODS.find(([k]) => k === period)?.[1].toLowerCase() ?? "all months"}
-      </p>
-
-      {options && (
-        <div className="filters">
-          <label className="month-select">
-            <span className="label">Customer</span>
-            <select value={customer} onChange={(e) => choose("customer_id", e.target.value)}>
-              <option value="all">All customers</option>
-              {options.customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="month-select">
-            <span className="label">Site</span>
-            <select value={params.get("site_id") ?? ""} onChange={(e) => choose("site_id", e.target.value)}>
-              <option value="">All sites</option>
-              {options.sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="month-select">
-            <span className="label">Period</span>
-            <select value={period} onChange={(e) => choose("period", e.target.value === "all" ? "" : e.target.value)}>
-              {PERIODS.map(([k, label]) => (
-                <option key={k} value={k}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
+      <PageTitle
+        title="Operators"
+        subtitle={`How your waste operators perform · ${PERIOD_TEXT[mode] ?? "last 3 months"}`}
+        context=""
+        right={
+          <div className="period-filter">
+            <label className="month-select">
+              <span className="label">Period</span>
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="3m">Last 3 months</option>
+                <option value="all">All</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            {mode === "custom" && (
+              <>
+                <label className="month-select">
+                  <span className="label">From</span>
+                  <select value={params.get("from") ?? ""} onChange={(e) => setRange("from", e.target.value)}>
+                    {months.map((m) => (
+                      <option key={m} value={m}>
+                        {month(m)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="month-select">
+                  <span className="label">To</span>
+                  <select value={params.get("to") ?? ""} onChange={(e) => setRange("to", e.target.value)}>
+                    {months.map((m) => (
+                      <option key={m} value={m}>
+                        {month(m)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {load.state === "loading" && <p className="status-text" role="status">Loading</p>}
-
       {load.state === "failed" && (
         <div className="status-text" role="alert">
           <p>Could not load. Try again.</p>
@@ -100,123 +108,80 @@ export function OperatorsPage() {
           </button>
         </div>
       )}
-
       {load.state === "ready" &&
         (load.data.operators.length === 0 ? (
-          <p className="status-text">No pickups for this choice.</p>
+          <p className="status-text">No pickups by an operator in this period.</p>
         ) : (
-          <>
-            <div className="cards">
-              {load.data.operators.map((op) => (
-                <Card key={`${op.operator_id}-${query}`} op={op} query={query} />
-              ))}
-            </div>
-            <p className="note">Suggestions only. Nothing is sent to the operator.</p>
-          </>
+          <div className="op-grid">
+            {load.data.operators.map((op) => (
+              <OperatorCardView key={op.operator_id} op={op} onPrepare={() => setAsking(op)} onNotNow={() => decide(op, "not_now")} />
+            ))}
+          </div>
         ))}
+      {asking && (
+        <MessageModal
+          id={asking.operator_id}
+          title="Prepare request"
+          sub={`${asking.name} · ${asking.suggestion.replace(/\.$/, "")}`}
+          message={asking.request_draft ?? ""}
+          subject={`${asking.suggestion.replace(/\.$/, "")}`}
+          onClose={() => setAsking(null)}
+          onSave={(m) => decide(asking, "prepare", m)}
+        />
+      )}
+      <FootNote>Suggestions only. Nothing is sent without your approval. Operator names are fictional. Demo data.</FootNote>
     </>
   );
 }
 
-function Card({ op, query }: { op: OperatorCard; query: string }) {
-  const [decision, setDecision] = useState<OperatorDecision | null>(op.decision);
-  const [draft, setDraft] = useState<string | null>(op.draft);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const draftRef = useRef<HTMLTextAreaElement>(null);
-  const titleId = `op-${op.operator_id}`;
-
-  const decide = async (d: OperatorDecision) => {
-    setBusy(true);
-    setFailed(false);
-    try {
-      const saved = await postOperatorDecision(op.operator_id, d, query);
-      setDecision(d);
-      setDraft(saved.draft);
-      if (d === "prepare") setTimeout(() => draftRef.current?.focus(), 0);
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const copy = async () => {
-    if (!draft) return;
-    try {
-      await navigator.clipboard.writeText(draft);
-    } catch {
-      draftRef.current?.select();
-      document.execCommand("copy");
-    }
-    setCopied(true);
-  };
-
+function OperatorCardView({ op, onPrepare, onNotNow }: { op: OperatorCard; onPrepare: () => void; onNotNow: () => void }) {
+  const check = op.status === "CHECK";
+  const act = op.suggested_action !== "NONE";
+  const name = op.name.replace(/\s*\(fictional\)$/i, "");
   return (
-    <section className="card" aria-labelledby={titleId}>
-      <header className="card-head">
-        <h2 id={titleId}>{op.name}</h2>
-        <span className="muted">{op.materials.join(", ")}</span>
+    <section className={act ? "card op-card is-check" : "card op-card"} aria-labelledby={`op-${op.operator_id}`}>
+      <header className="op-head">
+        <div>
+          <h2 id={`op-${op.operator_id}`} className="op-name">
+            {name}
+          </h2>
+          <p className="op-sub">
+            {op.materials.join(", ") || "No contract"} · {op.pickups} {op.pickups === 1 ? "pickup" : "pickups"}
+          </p>
+        </div>
+        <Chip tone={check ? "check" : "good"}>{check ? "Check" : "Good"}</Chip>
       </header>
-      <p className="muted card-scope">
-        {op.enough_data ? `${op.pickups} pickups` : `Based on ${op.pickups} pickups, not sure yet`} ·{" "}
-        {op.months === 1 ? "1 month" : `${op.months} months`}
-      </p>
-      <dl className="measures">
+      <dl className="op-rows">
         {op.measures.map((m) => (
-          <div key={m.key}>
+          <div key={m.key} className="op-row">
             <dt>{m.label}</dt>
-            <dd>
-              <span className="strong-text">{m.value}</span>
-              <Why info={m.why} label={`${m.label} for ${op.name}`} />
+            <dd className="op-value">
+              {m.value}
+              {m.key === "tickets_shared" && <InfoIcon info={m.why} label={m.label} />}
             </dd>
-            <dd className={m.status === "GOOD" ? "word-good" : "word-check"}>{m.status === "GOOD" ? "Good" : "Check"}</dd>
+            <dd>
+              <Chip tone={m.status === "CHECK" ? "check" : "good"}>{m.status === "CHECK" ? "Check" : "Good"}</Chip>
+            </dd>
           </div>
         ))}
       </dl>
-      <div className="suggested">
-        <p className="label">Suggested</p>
-        <h3>{op.suggestion}</h3>
-        <p>
-          {op.why}
-          <Why info={op.suggestion_why} label={`suggestion for ${op.name}`} />
-        </p>
-        {op.value_cents !== null && <p className="note">Expected value about {eur(op.value_cents)} (estimate).</p>}
-        {op.suggested_action !== "NONE" && (
-          <>
-            {decision && (
-              <p className="note">
-                {decision === "not_now" ? "You chose not now. " : ""}You can undo this in <Link to="/decisions">Decisions</Link>.
-              </p>
-            )}
-            {decision === "not_now" ? null : (
-              <div className="buttons">
-                <button type="button" className="btn btn-filled" disabled={busy} onClick={() => decide("prepare")}>
-                  Prepare request
-                </button>
-                <button type="button" className="btn btn-outline" disabled={busy} onClick={() => decide("not_now")}>
-                  Not now
-                </button>
-              </div>
-            )}
-            {failed && <p className="note" role="alert">Could not save. Try again.</p>}
-            {decision === "prepare" && draft && (
-              <div className="draft">
-                <label className="label" htmlFor={`draft-${op.operator_id}`}>
-                  Draft request (copy and send it yourself if you agree)
-                </label>
-                <textarea id={`draft-${op.operator_id}`} ref={draftRef} readOnly value={draft} rows={8} />
-                <div className="draft-actions">
-                  <button type="button" className="btn btn-outline" onClick={copy}>
-                    Copy
-                  </button>
-                  <span className="note" aria-live="polite">{copied ? "Copied" : ""}</span>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+      <div className={act ? "op-suggest is-check" : "op-suggest"}>
+        <p className="section-label">Suggested</p>
+        <p className="op-suggest-title">{act ? op.suggestion : "No action needed."}</p>
+        {act && <p className="op-suggest-why">{op.why}</p>}
+        {act &&
+          (op.decision ? (
+            <p className="sub-small">{op.decision === "prepare" ? "Request prepared. Nothing sent." : "Not now."}</p>
+          ) : (
+            <div className="op-actions">
+              <button type="button" className="btn btn-primary" onClick={onPrepare}>
+                Prepare request
+              </button>
+              <button type="button" className="btn btn-outline" onClick={onNotNow}>
+                Not now
+              </button>
+            </div>
+          ))}
       </div>
     </section>
   );

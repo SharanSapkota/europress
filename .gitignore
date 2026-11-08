@@ -5,3 +5,4 @@ __pycache__/
 api/exports/
 web/node_modules/
 web/dist/
+/video

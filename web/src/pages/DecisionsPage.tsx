@@ -1,52 +1,72 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { getDecisions, undoDecision, type DecisionEntry } from "../api/decisions";
+import { Chip, DataTable, FootNote, PageTitle, TableHeader } from "../components/ui";
 
 const MONTHS = 3;
-const ACTION_TEXT: Record<string, string> = {
-  CORRECT_LINE: "Ask to correct this line",
-  REQUEST_TICKET: "Ask for the scale ticket",
-  NONE: "No action",
-  REQUEST_TICKETS: "Ask for the missing scale tickets",
-  CORRECT_LINES: "Ask to correct the invoice lines",
-  RENEGOTIATE: "Consider renegotiating the contract",
-  TENDER: "Consider asking other operators for offers",
-};
 
 type Load = { state: "loading" } | { state: "failed" } | { state: "ready"; data: DecisionEntry[] };
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const date = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+function Trail({ boxes }: { boxes: DecisionEntry["trail"] }) {
+  return (
+    <ol className="trail-boxes">
+      {boxes.map((b, i) => (
+        <li key={b.label} className="trail-step">
+          {i > 0 && (
+            <span className="trail-arrow" aria-hidden="true">
+              →
+            </span>
+          )}
+          <span className="trail-box">
+            <span className="trail-label">{b.label}</span>
+            <span className="trail-value">{b.value}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export function DecisionsPage() {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const undo = async (id: string) => {
-    setBusy(id);
-    try {
-      await undoDecision(id);
-      setAttempt((a) => a + 1);
-    } finally {
-      setBusy(null);
-    }
-  };
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
     setLoad({ state: "loading" });
     getDecisions(MONTHS)
-      .then((data) => live && setLoad({ state: "ready", data }))
+      .then((data) => {
+        if (!live) return;
+        setLoad({ state: "ready", data });
+        setOpen((o) => o ?? data.find((e) => e.trail.length > 0 && e.decision !== "undo" && !e.undone)?.decision_id ?? null);
+      })
       .catch(() => live && setLoad({ state: "failed" }));
     return () => {
       live = false;
     };
   }, [attempt]);
 
+  const undo = async (id: string) => {
+    setBusy(true);
+    try {
+      await undoDecision(id);
+      setAttempt((a) => a + 1);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
-      <h1>Decisions</h1>
-      <p className="muted subtitle">Last {MONTHS} months, newest first</p>
+      <PageTitle
+        title="Decisions"
+        subtitle="Every suggestion you approved or declined, and what it was based on. Nothing is sent without you."
+        context=""
+      />
       {load.state === "loading" && <p className="status-text" role="status">Loading</p>}
       {load.state === "failed" && (
         <div className="status-text" role="alert">
@@ -60,40 +80,64 @@ export function DecisionsPage() {
         (load.data.length === 0 ? (
           <p className="status-text">No decisions yet.</p>
         ) : (
-          <div className="table-box">
-            <table className="history">
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Item</th>
-                  <th scope="col">Decision</th>
-                  <th scope="col">Suggested action</th>
-                  <th scope="col"><span className="visually-hidden">Undo</span></th>
-                </tr>
-              </thead>
+          <DataTable>
+            <table className="decisions-table">
+              <TableHeader cells={["When", "Item", "Suggestion", "Your decision", <span className="visually-hidden">Action</span>]} />
               <tbody>
-                {load.data.map((e) => (
-                  <tr key={e.decision_id}>
-                    <td className="muted">{when(e.created_at)}</td>
-                    <td>{e.label}</td>
-                    <td>
-                      {e.text}
-                      {e.undone && <span className="muted"> (undone)</span>}
-                    </td>
-                    <td className="muted">{ACTION_TEXT[e.suggestion.action ?? ""] ?? "–"}</td>
-                    <td className="action">
-                      {e.decision !== "undo" && !e.undone && (
-                        <button type="button" className="link" disabled={busy !== null} onClick={() => undo(e.decision_id)}>
-                          Undo<span className="visually-hidden"> {e.text} for {e.label}</span>
-                        </button>
+                {load.data.map((e) => {
+                  const expanded = open === e.decision_id;
+                  const active = e.decision !== "undo" && !e.undone;
+                  return (
+                    <Fragment key={e.decision_id}>
+                      <tr className={`row${e.undone || e.decision === "undo" ? " is-past" : ""}${expanded ? " is-open" : ""}`}>
+                        <td>
+                          <span className="cell-date">{date(e.created_at)}</span>
+                          <span className="sub-small">{time(e.created_at)}</span>
+                        </td>
+                        <td>
+                          <span className="cell-title">{e.title}</span>
+                          {e.detail && <span className="sub-small">{e.detail}</span>}
+                        </td>
+                        <td className="cell-text">{e.suggestion_text}</td>
+                        <td>
+                          <Chip tone={e.undone ? "neutral" : e.chip_tone}>{e.undone ? `${e.chip} · undone` : e.chip}</Chip>
+                        </td>
+                        <td className="action">
+                          {expanded && active ? (
+                            <button type="button" className="link-small" disabled={busy} onClick={() => undo(e.decision_id)}>
+                              Undo<span className="visually-hidden"> {e.chip} for {e.title}</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="link-small link-chevron"
+                              aria-expanded={expanded}
+                              onClick={() => setOpen(expanded ? null : e.decision_id)}
+                            >
+                              {expanded ? "Hide" : "Show"} <span aria-hidden="true">›</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr className="trail-row">
+                          <td colSpan={5}>
+                            {e.trail.length ? (
+                              <Trail boxes={e.trail} />
+                            ) : (
+                              <p className="sub-small trail-empty">{e.suggestion.text ?? "No evidence stored for this entry."}</p>
+                            )}
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
-          </div>
+          </DataTable>
         ))}
+      <FootNote>Every decision is saved with time and user. Undo adds a new entry and keeps the old one. Demo data.</FootNote>
     </>
   );
 }

@@ -10,7 +10,7 @@ def test_dispute_draft_keeps_status_and_dispute_sent_marks_disputed_with_time():
     res = svc.compare("2026-07")
     r = row(res, "P2")
     assert r["status"] == "DISPUTED" and r["found_status"] == "CHECK" and r["disputed_at"]
-    assert res["counts"]["DISPUTED"] == 1 and res["counts"]["CHECK"] == 4
+    assert res["counts"]["DISPUTED"] == 1 and res["counts"]["CHECK"] == 2 and res["view_counts"]["disputed"] == 1
 
 
 def test_unmatched_line_can_be_disputed():
