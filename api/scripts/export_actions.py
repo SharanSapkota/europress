@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.controllers.deps import action_service
+from app.controllers.deps import unscoped
 
 CASES = Path(__file__).resolve().parents[2] / "data" / "quickstart" / "public" / "csv" / "benchmark" / "operator_action_cases.csv"
 
@@ -16,7 +16,7 @@ def read_cases(path: Path) -> list[dict]:
 
 def export(out: Path, cases: Path = CASES) -> int:
     out.mkdir(parents=True, exist_ok=True)
-    chosen = action_service().cases(read_cases(cases))
+    chosen = unscoped().actions.cases(read_cases(cases))
     with (out / "my_actions.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["case_id", "actions"])

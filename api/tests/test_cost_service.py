@@ -87,3 +87,15 @@ def test_required_lifts_are_not_a_low_fill_cause_and_constraints_are_quantified(
     assert c["required_low_fill_pickups"] == 3 and c["hours_full"] == 10 and c["valid_reading_pct"] == 75
     text = s.constraint_text(c)
     assert "3 of 3 low-fill pickups were required" in text and "full for 10 hours" in text and "75%" in text
+
+
+def test_highlight_is_highest_ratio_with_site_and_plain_reason():
+    rows = [row(1, 1000, 18000, lines=[("MIN_CHARGE_TOPUP", 5000)]), row(2, 1000, 31000, device="D2",
+            lines=[("MIN_CHARGE_TOPUP", 9000)])]
+    res = svc().summarize(rows, ["2026-07"], "ORG-1")
+    h = res["highlight"]
+    assert h["ratio"] == 3.1 and h["device_id"] == "D2" and res["site_count"] == 1
+    assert h["sentence"] == "Cardboard at Demo site costs 3.1 times the normal rate in your contract."
+    assert h["reason"] == "Main reason: light pickups that trigger the minimum charge."
+    assert res["containers"][0]["benchmark_cents_per_t"] == VERSION["target_collection_cost_cents_per_t"]
+    assert svc().summarize([row(1, None, 9000)], ["2026-07"], "ORG-1")["highlight"] is None

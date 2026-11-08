@@ -4,6 +4,13 @@ const num = new Intl.NumberFormat("fi-FI", { maximumFractionDigits: 3 });
 
 export const eur = (cents: number) => money.format(cents / 100);
 
+const whole = new Intl.NumberFormat("fi-FI", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+
+export const eurWhole = (cents: number) => whole.format(Math.round(cents / 100));
+
+export const signedWhole = (cents: number) =>
+  (cents > 0 ? "+" : cents < 0 ? "−" : "") + whole.format(Math.abs(Math.round(cents / 100)));
+
 export const signedEur = (cents: number) => (cents > 0 ? "+" : cents < 0 ? "−" : "") + money.format(Math.abs(cents) / 100);
 
 export const t = (kg: number) => `${tonnes.format(kg / 1000)} t`;

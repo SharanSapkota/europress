@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.controllers.deps import comparison_service
+from app.controllers.deps import unscoped
 from app.services.matching_service import MatchingService
 
 A_COLS = ["collection_cost", "processing_cost", "penalties", "material_credit", "net_material_contribution",
@@ -16,7 +16,7 @@ def eur(c):
 
 
 def export(out: Path) -> tuple[int, int]:
-    svc = comparison_service()
+    svc = unscoped().comparison
     out.mkdir(parents=True, exist_ok=True)
     periods = svc.invoices.periods()
     pickups = svc.pickups.all()

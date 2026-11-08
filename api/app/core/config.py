@@ -25,11 +25,12 @@ class Settings:
     device_range_pct: float = float(os.getenv("DEVICE_RANGE_PCT", "3.3"))
     stored_tare_explains: bool = os.getenv("STORED_TARE_EXPLAINS", "false").lower() == "true"
     user: str = os.getenv("PORTAL_USER") or "demo user"
-    customer_id: str | None = os.getenv("CUSTOMER_ID") or None
+    customer_id: str | None = os.getenv("CURRENT_CUSTOMER_ID") or os.getenv("CUSTOMER_ID") or None
     sure_min_pickups: int = int(os.getenv("SURE_MIN_PICKUPS", "10"))
     low_fill_pct: float = float(os.getenv("LOW_FILL_PCT", "50"))
     cost_ratio_check: float = float(os.getenv("COST_RATIO_CHECK", "1.2"))
-    on_time_window_hours: float = float(os.getenv("ON_TIME_WINDOW_HOURS", "24"))
+    on_time_window_hours: float = float(os.getenv("ON_TIME_WINDOW_HOURS", "2"))
+    billing_accuracy_min: float = float(os.getenv("BILLING_ACCURACY_MIN", "98"))
     on_time_min: float = float(os.getenv("ON_TIME_MIN", "0.9"))
     missed_visits_max: int = int(os.getenv("MISSED_VISITS_MAX", "1"))
     tickets_shared_min: float = float(os.getenv("TICKETS_SHARED_MIN", "0.8"))

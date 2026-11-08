@@ -4,7 +4,7 @@ from fakes import real_stack
 
 from app.models.schemas import ComparisonResponse, CostsResponse, OperatorsResponse
 
-LEVELS = {"high", "low", "not enough data"}
+LEVELS = {"high", "medium", "low", "not enough data"}
 
 
 @lru_cache

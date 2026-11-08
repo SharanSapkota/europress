@@ -81,7 +81,7 @@ def test_weight_gap_billed_vs_ticket_is_check():
 
 def test_weight_gap_device_vs_ticket_without_cause_is_check():
     r = row(build()[1], "P7")
-    assert r["status"] == "CHECK" and ("WEIGHT_DISCREPANCY", "CHECK") in families(r)
+    assert r["found_status"] == "CHECK" and ("WEIGHT_DISCREPANCY", "CHECK") in families(r)
     assert "not a combined load" in r["reason"]
 
 
@@ -101,12 +101,12 @@ def test_no_lift_line():
 
 def test_combined_load_is_explained():
     r = row(build()[1], "P4")
-    assert r["status"] == "EXPLAINED" and "combined load" in r["reason"]
+    assert r["found_status"] == "EXPLAINED" and "combined load" in r["reason"]
 
 
 def test_no_ticket_and_no_device_is_no_data():
     r = row(build()[1], "P5")
-    assert r["status"] == "NO_DATA" and r["ours"]["weight_source"] == "invoice"
+    assert r["found_status"] == "NO_DATA" and r["ours"]["weight_source"] == "invoice"
     assert r["suggested_action"] == "REQUEST_TICKET"
 
 
@@ -114,7 +114,8 @@ def test_typo_fallback_uninvoiced_and_decision_trail():
     svc, res = build()
     assert row(res, "P6")["match_by"] == "contract_date_type" and row(res, "P6")["status"] == "MATCH"
     assert ("UNINVOICED_COLLECTION", "CHECK") in families(row(res, "P8"))
-    assert res["counts"] == {"CHECK": 5, "NO_DATA": 1, "EXPLAINED": 1, "MATCH": 2, "DISPUTED": 0}
+    assert res["counts"] == {"CHECK": 3, "NO_DATA": 0, "EXPLAINED": 0, "MATCH": 6, "DISPUTED": 0}
+    assert res["view_counts"] == {"check": 4, "disputed": 0, "explained": 0, "match": 6}
     saved = svc.decide("P2", "dispute_draft")
     assert saved["decision"] == "dispute_draft" and saved["user"] == "demo user" and saved["created_at"]
     assert saved["suggestion"]["action"] == "CORRECT_LINE" and saved["numbers"]["billed_kg"] == 1200
@@ -122,7 +123,58 @@ def test_typo_fallback_uninvoiced_and_decision_trail():
 
 def test_stored_tare_gap_is_check_with_plain_reason():
     r = row(build()[1], "P9")
-    assert r["status"] == "CHECK" and ("WEIGHT_DISCREPANCY", "CHECK") in families(r)
+    assert r["found_status"] == "CHECK" and ("WEIGHT_DISCREPANCY", "CHECK") in families(r)
     assert r["reason"] == ("The operator used a stored truck weight. That can explain the gap, "
                            "or the stored weight may be out of date.")
     assert r["draft_question"].startswith("Hello,") and "weighbridge ticket" in r["draft_question"]
+
+
+def test_zero_difference_is_always_match():
+    _, res = build()
+    for r in res["rows"]:
+        if r["difference_cents"] == 0:
+            assert r["status"] == "MATCH" and r["view"] == "match" and not r["needs_attention"]
+    assert row(res, "P7")["difference_cents"] == 0 and row(res, "P7")["items"]
+
+
+def test_should_cost_popover_has_source_and_confidence():
+    _, res = build()
+    for r in res["rows"]:
+        w = r["why"]["ours"]
+        assert w["source"].startswith("Your contract (version 1)")
+        assert w["confidence"] in ("high", "medium", "low") and w["reason"]
+    p1 = row(res, "P1")["why"]["ours"]
+    assert "scale ticket of 1 July: 1 t" in p1["source"] and p1["confidence"] == "high"
+    assert p1["reason"] == "Our container scale says 1 t too."
+    assert row(res, "P5")["why"]["ours"]["confidence"] == "low"
+
+
+def test_cell_notes_and_views():
+    _, res = build()
+    assert row(res, "P2")["billed_note"] == "1,2 t billed" and row(res, "P2")["ours_note"] == "1 t, scale ticket"
+    assert row(res, "P3")["short_reason"] == "Lift fee billed twice" and row(res, "P3")["view"] == "check"
+    assert row(res, "P8")["billed_note"] == "Not on the invoice"
+    lx = res["unmatched_lines"][0]
+    assert lx["view"] == "check" and lx["ours_note"] == "No pickup found" and lx["billed_note"] == "Lift fee billed"
+
+
+def test_dispute_stores_message_and_all_evidence_and_undo_appends():
+    svc, res = build()
+    msg = row(res, "P2")["dispute_message"]
+    assert msg.startswith("Hello,") and "Could you please check this lift and correct it if needed?" in msg
+    assert "1,2 t" in msg and "scale ticket for this pickup shows 1 t" in msg and "20,00 €" in msg
+    saved = svc.decide("P2", "question", msg)
+    ev = saved["evidence"]
+    for k in ("pickup_id", "date", "invoice_id", "our_scale_kg", "ticket_kg", "billed_kg", "weight_source",
+              "contract_version_id", "should_cost_cents", "billed_cents", "difference_cents"):
+        assert k in ev
+    assert ev["billed_kg"] == 1200 and ev["ticket_kg"] == 1000 and saved["message"] == msg
+    r = row(svc.compare("2026-07"), "P2")
+    assert r["status"] == "DISPUTED" and r["view"] == "disputed" and r["disputed_at"]
+    hist = svc.decisions.history()
+    assert hist[0]["chip"] == "Disputed" and [b["label"] for b in hist[0]["trail"]] == [
+        "Pickup", "Our scale", "Scale ticket", "Contract", "Billed"]
+    svc.decisions.undo(saved["decision_id"])
+    hist = svc.decisions.history()
+    assert len(hist) == 2 and any(h["undone"] for h in hist) and any(h["decision"] == "undo" for h in hist)
+    assert row(svc.compare("2026-07"), "P2")["status"] == "CHECK"

@@ -4,12 +4,12 @@ MEASURES = ("on_time", "missed_visits", "tickets_shared", "lines_to_check", "wei
 VALUE_KEY = {"REQUEST_TICKETS": "REQUEST_WEIGHBRIDGE_DATA", "CORRECT_LINES": "DISPUTE_INVOICE",
              "RENEGOTIATE": "RENEGOTIATE_CONTRACT", "TENDER": "TENDER_OR_SWITCH_OPERATOR"}
 TITLE = {"NONE": "No action needed.", "REQUEST_TICKETS": "Ask for the missing scale tickets.",
-         "CORRECT_LINES": "Ask to correct the invoice lines.", "RENEGOTIATE": "Consider renegotiating the contract.",
+         "CORRECT_LINES": "Ask to correct the billed lifts.", "RENEGOTIATE": "Consider renegotiating the contract.",
          "TENDER": "Consider asking other operators for offers."}
 
 
 def pct(x: float | None) -> str:
-    return f"{round((x or 0) * 100)}%"
+    return f"{round((x or 0) * 100)} %"
 
 
 class SuggestionService:
@@ -22,12 +22,11 @@ class SuggestionService:
             "on_time": f"{pct(m['on_time_rate'])} of pickups were within {s.on_time_window_hours:g} hours of the planned time, "
                        f"below {pct(s.on_time_min)}",
             "missed_visits": f"{m['missed_visits']} planned visits were missed, more than {s.missed_visits_max}",
-            "tickets_shared": f"{pct(m['tickets_shared_rate'])} of pickups have a shared scale ticket, below {pct(s.tickets_shared_min)}"
-            if (m["tickets_shared_rate"] or 0) < s.tickets_shared_min else
-            f"scale tickets arrive after {round(m['median_share_lag_days'] or 0)} days, later than {s.share_lag_max_days:g} days",
-            "lines_to_check": f"{m['lines_to_check']} of {m['invoice_lines']} invoice lines differ from your contract",
-            "weight_vs_ours": f"scale weights are {m['weight_gap_median_pct']:+.0f}% from your device weights"
-            if m["weight_gap_median_pct"] is not None else "weights could not be compared",
+            "tickets_shared": f"only {pct(m['weighbridge_shared_7d_rate'])} of scale tickets were shared within 7 days, "
+                              f"below {pct(s.tickets_shared_min)}",
+            "lines_to_check": f"{m['lines_to_check']} of {m['invoice_lines']} invoice items differ from your contract",
+            "weight_vs_ours": f"billed weights are {m['weight_bias_pct']:+.0f}% from our container scale"
+            if m["weight_bias_pct"] is not None else "weights could not be compared",
         }
 
     def suggest(self, flags: dict[str, str], persistent: list[str], declined_renegotiation: bool,

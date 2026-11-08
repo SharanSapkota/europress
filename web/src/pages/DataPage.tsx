@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { DataTable, FootNote, PageTitle } from "../components/ui";
 
 type Rule = { rule: string; status: string; where: string; to?: string };
 
@@ -6,8 +7,8 @@ const FACTS: Rule[] = [
   {
     rule: "Europress is not a party to waste transport or treatment and does not know the real prices.",
     status: "Confirmed by Europress",
-    where: "Invoices labels our total \"Our invoice (estimate)\", every footer says our amounts are estimates, and every Why? on our amounts names your contract version as the price source.",
-    to: "/",
+    where: "Invoices labels our total \"Our invoice (estimate)\", every footer says our amounts are estimates, and every i (info) button on our amounts names your contract version as the price source.",
+    to: "/invoices",
   },
   {
     rule: "Only cardboard and plastics earn a material credit. Paper and other streams are charged.",
@@ -19,7 +20,7 @@ const FACTS: Rule[] = [
     rule: "Material quality is set only by the operator at its facility.",
     status: "Confirmed by Europress",
     where: "Invoices, Details, \"Where the numbers come from\": the quality grade names the operator's quality assessment. When none is shared, it says \"Not shared (grade A assumed)\" and the pickup gets Not enough data with that reason.",
-    to: "/",
+    to: "/invoices",
   },
   {
     rule: "Europress does not know which facility the operator uses.",
@@ -41,12 +42,12 @@ const FACTS: Rule[] = [
     rule: "Integrated weighing gives usable weights (a future scenario; most devices have it).",
     status: "Challenge assumption, not proven",
     where: "The scale ticket comes first, then invoice tonnage, then the device weight. A weight is never guessed. The device weight is tagged Estimated.",
-    to: "/",
+    to: "/invoices",
   },
   {
     rule: "Device weighing accuracy is about ±3.3 %; fault states exceed it.",
     status: "Simulation target set with Europress",
-    where: "Device weights show ± 3.3 %. The Why? on the main reason in Cost per tonne gives the share of valid device readings.",
+    where: "Device weights show ± 3.3 %. The i (info) button on the main reason in Cost per tonne gives the share of valid device readings.",
     to: "/costs",
   },
   {
@@ -58,19 +59,19 @@ const FACTS: Rule[] = [
   {
     rule: "Operators differ in data sharing (0–97 %), sharing delay and invoice accuracy.",
     status: "Synthetic assumption; operators are fictional",
-    where: "Operators shows tickets shared, the delay, and invoice lines to check per operator, each with Good or Check.",
+    where: "Operators shows on time (within 2 h), missed visits, scale tickets in 7 days, billing accuracy and weight vs our scale per operator, each with Good or Check.",
     to: "/operators",
   },
   {
     rule: "Tariffs, gate fees, credit shares, surcharges and minimum charges are hypothetical.",
     status: "Hypothetical",
-    where: "Used only as your contract terms. The Why? on our amounts and on each invoice line names the contract version.",
-    to: "/",
+    where: "Used only as your contract terms. The i (info) button on our amounts and on each lift names the contract version.",
+    to: "/invoices",
   },
   {
     rule: "Material price indices are synthetic.",
     status: "Synthetic illustrative index",
-    where: "Used only for the material credit. Cost per tonne, Details: the Why? on material credit says it comes from the price index and the quality grade.",
+    where: "Used only for the material credit. Cost per tonne, Details: the i (info) button on material credit says it comes from the price index and the quality grade.",
     to: "/costs",
   },
   {
@@ -106,13 +107,13 @@ const LIMITS: Rule[] = [
     rule: "Simplified logistics: one billable distance per site, combined loads only for the same customer and material.",
     status: "Limitation",
     where: "Transport uses the contract distance. Combined loads are shown as Explained, not as a difference.",
-    to: "/",
+    to: "/invoices",
   },
   {
     rule: "Contamination is one share per load; the grade is a noisy operator assessment.",
     status: "Limitation",
     where: "Invoices, Details: the grade source is the operator's quality assessment. Each flagged item names a likely source (invoice vs contract, measurement, missing data, normal), never blame.",
-    to: "/",
+    to: "/invoices",
   },
   {
     rule: "One device per stream per site; no relocations between sites.",
@@ -129,7 +130,7 @@ const LIMITS: Rule[] = [
   {
     rule: "Scorecard: punctuality and missed visits are your own records; billing and weights need reconciliation.",
     status: "Limitation",
-    where: "On time and missed visits are tagged Observed; invoice lines and weight vs ours are Estimated. Weight vs ours says a gap can come from the device, the weighbridge or a shared truck.",
+    where: "On time and missed visits are tagged Observed; billing accuracy and weight vs our scale are Estimated. Weight vs our scale says a gap can come from the device, the weighbridge or a shared truck.",
     to: "/operators",
   },
   {
@@ -185,7 +186,7 @@ function Section({ title, rules }: { title: string; rules: Rule[] }) {
   return (
     <section className="data-section">
       <h2 className="label">{title}</h2>
-      <div className="table-box">
+      <DataTable>
         <table className="history data-rules">
           <thead>
             <tr>
@@ -212,7 +213,7 @@ function Section({ title, rules }: { title: string; rules: Rule[] }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </DataTable>
     </section>
   );
 }
@@ -220,10 +221,10 @@ function Section({ title, rules }: { title: string; rules: Rule[] }) {
 export function DataPage() {
   return (
     <>
-      <h1>About the data</h1>
-      <p className="muted subtitle">How this portal follows the dataset's assumptions and limitations</p>
+      <PageTitle title="About the data" subtitle="How this portal follows the dataset's assumptions and limitations." />
       <Section title="Facts and assumptions" rules={FACTS} />
       <Section title="Limitations" rules={LIMITS} />
+      <FootNote>Synthetic data from the dataset pack, fictional customer and operators. Demo data.</FootNote>
     </>
   );
 }

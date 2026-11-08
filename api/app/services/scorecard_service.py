@@ -14,6 +14,18 @@ OPERATOR_STATUSES = ("COMPLETED", "PARTIAL", "MISSED_BY_OPERATOR", "WASTED_TRIP"
 EXPORT_WINDOW_HOURS = 2
 
 
+def billing_accuracy(m: dict) -> float | None:
+    over, under = m.get("billing_overcharge_pct"), m.get("billing_undercharge_pct")
+    if over is None and under is None:
+        return None
+    return max(0.0, 100 - abs(over or 0) - abs(under or 0))
+
+
+def pct_fi(value: float, decimals: int = 0, signed: bool = False) -> str:
+    text = f"{value:{'+' if signed else ''}.{decimals}f}".replace(".", ",")
+    return f"{text} %"
+
+
 def rate(n: int, d: int) -> float | None:
     return n / d if d else None
 
@@ -151,10 +163,9 @@ class ScorecardService:
         good = {
             "on_time": m["on_time_rate"] is None or m["on_time_rate"] >= s.on_time_min,
             "missed_visits": m["missed_visits"] <= s.missed_visits_max,
-            "tickets_shared": m["tickets_shared_rate"] is None or (m["tickets_shared_rate"] >= s.tickets_shared_min and
-                                                                   (m["median_share_lag_days"] or 0) <= s.share_lag_max_days),
-            "lines_to_check": not m["invoice_lines"] or m["lines_to_check"] / m["invoice_lines"] <= s.lines_check_max,
-            "weight_vs_ours": m["weight_gap_median_pct"] is None or abs(m["weight_gap_median_pct"]) <= s.weight_gap_max_pct,
+            "tickets_shared": m["weighbridge_shared_7d_rate"] is None or m["weighbridge_shared_7d_rate"] >= s.tickets_shared_min,
+            "lines_to_check": billing_accuracy(m) is None or billing_accuracy(m) >= s.billing_accuracy_min,
+            "weight_vs_ours": m["weight_bias_pct"] is None or abs(m["weight_bias_pct"]) <= s.weight_gap_max_pct,
         }
         return {k: "GOOD" if v else "CHECK" for k, v in good.items()}
 
@@ -164,7 +175,7 @@ class ScorecardService:
         cid = None if everyone else self.comparison.customer_id(customer_id)
         available = self.comparison.data_months()
         chosen = resolve(available, period, start, end)
-        f = self._facts(cid, chosen, self.s.on_time_window_hours, site_id) if chosen else \
+        f = self._facts(cid, chosen, EXPORT_WINDOW_HOURS, site_id) if chosen else \
             {"periods": [], "jobs": [], "lines": [], "missing": []}
         op_ids = sorted({j["key"][0] for j in f["jobs"]} | {ln["key"][0] for ln in f["lines"] if ln["key"][0]})
         op_ids = [o for o in op_ids if not operator_id or o == operator_id]
@@ -176,7 +187,7 @@ class ScorecardService:
                             "from": start, "to": end, "operator_id": operator_id},
                 "options": self._options(cid, available),
                 "months": len(f["periods"]), "periods": f["periods"],
-                "on_time_window_hours": self.s.on_time_window_hours,
+                "on_time_window_hours": EXPORT_WINDOW_HOURS,
                 "operators": [self._card(op, f, decided.get(op) or {}, cid, site_id) for op in op_ids]}
 
     def _options(self, cid: str | None, months: list[str]) -> dict:
@@ -203,7 +214,7 @@ class ScorecardService:
         covered = sorted({x["key"][2] for x in pick(f["jobs"]) + pick(f["lines"]) if x["key"][2]})
         name = (self.operator_repo.get(op) or {}).get("operator_name") or op
         declined = self.decisions.declined("operator", op, "RENEGOTIATE")
-        values = self._values(contracts) if persistent else {}
+        values = self._values(contracts) if persistent and self.actions else {}
         tip = self.suggestions.suggest(flags, persistent, declined, values, m)
         latest = decision if (decision.get("suggestion") or {}).get("action") == tip["action"] else {}
         draft = self.suggestions.draft(tip["action"], name, m)
@@ -224,7 +235,7 @@ class ScorecardService:
                                   f"{tip['why']} The expected value uses the published valuation rules "
                                   f"(ECONOMIC_MODEL section 7) and is not proof of a real saving.",
                                   "hypothetical" if tip["value_cents"] else "estimated"),
-            "draft": draft if latest.get("decision") == "prepare" else None, "_draft": draft,
+            "draft": draft if latest.get("decision") == "prepare" else None, "_draft": draft, "request_draft": draft,
         }
 
     def _values(self, contracts: list[dict]) -> dict[str, int]:
@@ -242,7 +253,7 @@ class ScorecardService:
         tickets = listing([j["ticket_id"] for j in lifts if j["ticket_id"]], "Scale tickets")
         pickups = listing([j["pickup_id"] for j in jobs], "Pickups")
         devices = listing([j["device_id"] for j in lifts if j["weighed"]], "Device estimates")
-        lines = listing([c["contract_id"] for c in contracts], "Invoice lines of contracts")
+        lines = listing([c["contract_id"] for c in contracts], "Invoices of contracts")
         count = {"on_time": len(lifts), "missed_visits": len(jobs), "tickets_shared": len(lifts),
                  "lines_to_check": m["invoice_lines"], "weight_vs_ours": m["weight_pairs"]}
         src = {"on_time": pickups, "missed_visits": pickups, "tickets_shared": f"{tickets or 'No scale tickets'}; {pickups}",
@@ -260,36 +271,41 @@ class ScorecardService:
         return rows
 
     def _measure_rows(self, m: dict, flags: dict) -> list[dict]:
-        window = f"{self.s.on_time_window_hours:g} hours"
-        shared = "No pickups"
-        if m["tickets_shared_rate"] is not None:
-            lag = m["median_share_lag_days"]
-            shared = f"{round(m['tickets_shared_rate'] * 100)}%" + (f", after {lag:.0f} days" if lag is not None else "")
-        gap = m["weight_gap_median_pct"]
+        window = f"{EXPORT_WINDOW_HOURS:g} h"
+        acc, bias = billing_accuracy(m), m["weight_bias_pct"]
         return [
-            {"key": "on_time", "label": "On time", "status": flags["on_time"],
-             "value": f"{round(m['on_time_rate'] * 100)}% of pickups" if m["on_time_rate"] is not None else "No pickups",
-             "source": f"Your pickup records: {m['n_completed_lifts']} pickups, done within {window} of the planned time."},
+            {"key": "on_time", "label": f"On time (within {window})", "status": flags["on_time"],
+             "value": pct_fi(m["on_time_rate"] * 100) if m["on_time_rate"] is not None else "No pickups",
+             "source": f"Completed lifts within {window} of the planned time ({m['n_completed_lifts']} lifts)."},
             {"key": "missed_visits", "label": "Missed visits", "value": str(m["missed_visits"]), "status": flags["missed_visits"],
-             "source": f"Your pickup records: {m['n_operator_jobs']} planned visits. Low-fill skips and your own "
-                       f"cancellations are not counted."},
-            {"key": "tickets_shared", "label": "Scale tickets shared", "value": shared, "status": flags["tickets_shared"],
-             "source": "Published weighbridge tickets per pickup; the delay is the median from weighing to sharing."},
-            {"key": "lines_to_check", "label": "Invoice lines to check", "status": flags["lines_to_check"],
-             "value": f"{m['lines_to_check']} of {m['invoice_lines']}",
-             "source": "Invoice lines that differ from your contract (Invoices page)."},
-            {"key": "weight_vs_ours", "label": "Weight vs ours", "status": flags["weight_vs_ours"],
-             "value": f"{gap:+.0f}%" if gap is not None else "Not enough data",
-             "source": f"Median difference between the scale ticket and your device weight, {m['weight_pairs']} "
-                       f"single-load pickups."},
+             "source": f"Visits the operator missed, out of {m['n_operator_jobs']} operator jobs. Low-fill skips and your "
+                       f"own cancellations are not counted."},
+            {"key": "tickets_shared", "label": "Scale tickets in 7 days", "status": flags["tickets_shared"],
+             "value": pct_fi(m["weighbridge_shared_7d_rate"] * 100) if m["weighbridge_shared_7d_rate"] is not None
+             else "No pickups",
+             "source": "Completed lifts whose scale ticket was shared with you within 7 days."},
+            {"key": "lines_to_check", "label": "Billing accuracy", "status": flags["lines_to_check"],
+             "value": pct_fi(acc, 1) if acc is not None else "No invoices",
+             "source": "100 % minus the amounts billed over and under your contract, as a share of the contract amount."},
+            {"key": "weight_vs_ours", "label": "Weight vs our scale", "status": flags["weight_vs_ours"],
+             "value": pct_fi(bias, 0, True) if bias is not None else "Not enough data",
+             "source": "Operator's allocated weight compared with our container scale, over all lifts with both."},
         ]
 
-    def decide(self, operator_id: str, decision: str, **filters) -> dict | None:
+    def decide(self, operator_id: str, decision: str, message: str | None = None, **filters) -> dict | None:
         card = next((c for c in self.operators(**filters, operator_id=operator_id)["operators"]), None)
         if not card or card["suggested_action"] == "NONE":
             return None
+        checks = [m for m in card["measures"] if m["status"] == "CHECK"]
+        lead = checks[0] if checks else card["measures"][0]
+        detail = (f"{lead['value']} of scale tickets in 7 days" if lead["key"] == "tickets_shared"
+                  else f"{lead['label']}: {lead['value']}")
+        view = {"title": card["name"], "detail": detail, "suggestion": card["suggestion"].rstrip("."),
+                "trail": [{"label": m["label"], "value": m["value"]} for m in card["measures"]]}
         saved = self.decisions.record("operator", operator_id, decision, card["name"],
                                       {"action": card["suggested_action"], "text": f"{card['suggestion']} {card['why']}"},
-                                      {m["key"]: m["value"] for m in card["measures"]})
+                                      {m["key"]: m["value"] for m in card["measures"]},
+                                      evidence={m["key"]: m["value"] for m in card["measures"]}, message=message,
+                                      view=view)
         return {**saved, "operator_id": operator_id, "action": card["suggested_action"],
                 "draft": card["_draft"] if decision == "prepare" else None}

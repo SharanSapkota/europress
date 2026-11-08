@@ -1,45 +1,45 @@
+from fastapi import Depends, HTTPException
+
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.params import params
 from app.repositories import mongo as r
-from app.services.comparison_service import ComparisonService
-from app.services.cost_service import CostService
-from app.services.decision_service import DecisionService
-from app.services.operator_action_service import OperatorActionService
-from app.services.our_invoice_service import OurInvoiceService
-from app.services.scorecard_service import ScorecardService
-from app.services.suggestion_service import SuggestionService
+from app.repositories.scope import Scope, scope_repos
+from app.services.registry import Services
 
 
-def decision_service() -> DecisionService:
-    return DecisionService(r.DecisionRepository(get_db()), settings)
+def base_repos(db) -> dict:
+    return {
+        "devices": r.DeviceRepository(db), "sites": r.SiteRepository(db), "contracts": r.ContractRepository(db),
+        "pickups": r.PickupRepository(db), "invoices": r.OperatorInvoiceRepository(db),
+        "lines": r.OperatorInvoiceLineRepository(db), "versions": r.ContractVersionRepository(db),
+        "tickets": r.TicketRepository(db), "quality": r.QualityRepository(db), "daily": r.TelemetryDailyRepository(db),
+        "telemetry": r.TelemetryRepository(db), "work_orders": r.WorkOrderRepository(db),
+        "calendar": r.SiteCalendarRepository(db), "operators": r.OperatorRepository(db),
+        "customers": r.CustomerRepository(db), "decisions": r.DecisionRepository(db),
+        "price_index": r.PriceIndexRepository(db), "materials": r.MaterialRepository(db),
+        "grade_rules": r.GradeRuleRepository(db),
+    }
 
 
-def comparison_service() -> ComparisonService:
-    db = get_db()
-    ours = OurInvoiceService(r.DeviceRepository(db), r.TicketRepository(db), r.QualityRepository(db),
-                             r.ContractRepository(db), r.ContractVersionRepository(db), r.PriceIndexRepository(db),
-                             r.MaterialRepository(db), settings)
-    return ComparisonService(r.PickupRepository(db), r.OperatorInvoiceRepository(db),
-                             r.OperatorInvoiceLineRepository(db), decision_service(), ours, settings,
-                             r.CustomerRepository(db), r.SiteRepository(db), r.OperatorRepository(db))
+def resolve_scope(customer_id: str | None, site_id: str | None, base: dict) -> Scope:
+    customers = [c["customer_id"] for c in base["customers"].all()]
+    cid = customer_id or settings.customer_id or (customers[0] if customers else None)
+    if cid not in customers:
+        raise HTTPException(404, "Customer not found")
+    if site_id and (base["sites"].get(site_id) or {}).get("customer_id") != cid:
+        raise HTTPException(404, "Site not found")
+    return Scope(cid, site_id or None)
 
 
-def cost_service() -> CostService:
-    db = get_db()
-    return CostService(comparison_service(), r.DeviceRepository(db), r.SiteRepository(db), settings,
-                       r.TelemetryDailyRepository(db))
+def services(customer_id: str | None = None, site_id: str | None = None) -> Services:
+    base = base_repos(get_db())
+    scope = resolve_scope(customer_id, site_id, base)
+    return Services(scope_repos(base, scope), settings, params(), scope.customer_id, scope.site_id, peers=False)
 
 
-def action_service(comparison: ComparisonService | None = None) -> OperatorActionService:
-    db = get_db()
-    return OperatorActionService(comparison or comparison_service(), r.ContractRepository(db),
-                                 r.ContractVersionRepository(db), r.DeviceRepository(db), r.SiteRepository(db),
-                                 r.MaterialRepository(db), r.OperatorRepository(db), r.TicketRepository(db), settings)
+def unscoped() -> Services:
+    return Services(base_repos(get_db()), settings, params())
 
 
-def scorecard_service() -> ScorecardService:
-    db = get_db()
-    comparison = comparison_service()
-    return ScorecardService(comparison, action_service(comparison), SuggestionService(settings), r.PickupRepository(db),
-                            r.TicketRepository(db), r.DeviceRepository(db), r.SiteRepository(db), r.ContractRepository(db),
-                            r.OperatorRepository(db), comparison.decisions, settings)
+ScopedServices = Depends(services)

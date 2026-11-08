@@ -39,14 +39,18 @@ Seed script: `api/scripts/seed.py` (loads every CSV, drops and reloads, never lo
 ## Endpoints (add as needed)
 `GET /api/pickups`, `GET /api/invoices/comparison?period=YYYY-MM`, `GET /api/invoices/comparison/{pickup_id}`, `POST /api/invoices/comparison/{pickup_id}/decision` (body: `ok` | `question`).
 
-## Design tokens (web/src/styles/tokens.css)
+## Design tokens (web/src/styles/tokens.css, reference: design/01-dashboard.png … 08-decisions.png; ignore *@2x.png and design/reference)
 ```
---primary: #0B3253; --text: #2C3E50; --text-on-primary: #FFFFFF; --bg: #FFFFFF;
-font-family: Inter, Roboto, "Open Sans", sans-serif;
+--primary: #0B3253; --primary-dark: #082640; --text: #2C3E50; --muted: #5B6B7B;
+--page: #F5F7FA; --card: #FFFFFF; --line: #E3E9EF; --key-bg: #E6EEF7;
+--check-bg: #FDF3E0; --check-text: #8A5300; --good-bg: #E3F3E8; --good-text: #1E6B3A;
+--check-line: #E0A93B; --tile: #1B4569; --table-head: #EEF2F6; --foot: #7A8A99;
+font-family: Inter, Roboto, "Open Sans", sans-serif; tabular numbers.
 ```
-- Headings: uppercase, weight 700-800, wide letter-spacing (0.08em).
-- Nav links: uppercase, weight 600, small size.
-- Corporate industrial, minimalist, lots of white space. One accent (primary). Amber only for CHECK. No red.
+- Header: 72px, gradient primary to primary-dark, padding 0 48px, 36px logo tile, "SMART WEIGHT" 15px 800 .14em. Nav 12px uppercase 600 .12em, 72% white, active white: Dashboard, Invoices, Cost per tonne, Operators, Containers, Value, Decisions.
+- Page wrap: max 1340, padding 48, flex column, gap 24. H1 40px 800 uppercase primary; sub text 15px muted.
+- Shared components (web/src/components/ui.tsx, styles/base.css): Card, TotalsPanel (3 columns, third on key-bg), StatTile (3px left line: amber = to check, primary otherwise), Chip (disputed, good, neutral, blue, check), InfoIcon (18px "i", dark popover on hover or click), Button (primary, outline; 44px), TableHeader, FootNote. Page-only styles live in styles/app.css and use tokens only.
+- No red anywhere. Amber only for CHECK. Say "lift", never "line". Euro amounts that are not billed say "estimate".
 - Plain words: "Check this", "Matches", "Estimated". Max 3 actions on a screen.
 
 ## Layout

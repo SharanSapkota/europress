@@ -93,28 +93,40 @@ def decisions():
     return DecisionService(FakeDecisionRepo(), Settings())
 
 
-def real_stack():
-    from app.core.config import Settings
-    from app.services.comparison_service import ComparisonService
-    from app.services.cost_service import CostService
-    from app.services.operator_action_service import OperatorActionService
-    from app.services.our_invoice_service import OurInvoiceService
-    from app.services.scorecard_service import ScorecardService
-    from app.services.suggestion_service import SuggestionService
+DEFAULT_PARAMS = {"pricing": {"price_per_device_month_eur": [29, 49, 79]},
+                  "costs": {"onboarding_per_device_eur": 150, "operating_cost_per_device_month_eur": 9},
+                  "adoption": {"adoption_share_of_eligible_pct": [20, 40]},
+                  "equipment": {"lease_per_m3_month_eur": 15}}
 
-    s = Settings()
-    repos = {n: load(n) for n in ("devices", "weighbridge_tickets", "quality_assessments", "contracts", "contract_versions",
-                                  "price_index_monthly", "material_classes", "collection_events", "invoices",
-                                  "invoice_lines", "customers", "sites", "operators")}
-    ours = OurInvoiceService(repos["devices"], repos["weighbridge_tickets"], repos["quality_assessments"], repos["contracts"],
-                             repos["contract_versions"], repos["price_index_monthly"], repos["material_classes"], s)
-    comparison = ComparisonService(repos["collection_events"], repos["invoices"], repos["invoice_lines"], decisions(), ours, s,
-                                   repos["customers"], repos["sites"], repos["operators"])
-    costs = CostService(comparison, repos["devices"], repos["sites"], s, load("telemetry_daily_summary"))
-    actions = OperatorActionService(comparison, repos["contracts"], repos["contract_versions"], repos["devices"],
-                                    repos["sites"], repos["material_classes"], repos["operators"],
-                                    repos["weighbridge_tickets"], s)
-    scorecard = ScorecardService(comparison, actions, SuggestionService(s), repos["collection_events"],
-                                 repos["weighbridge_tickets"], repos["devices"], repos["sites"], repos["contracts"],
-                                 repos["operators"], comparison.decisions, s)
-    return comparison, costs, actions, scorecard
+
+def base_repos():
+    names = {"devices": "devices", "sites": "sites", "contracts": "contracts", "pickups": "collection_events",
+             "invoices": "invoices", "lines": "invoice_lines", "versions": "contract_versions",
+             "tickets": "weighbridge_tickets", "quality": "quality_assessments", "daily": "telemetry_daily_summary",
+             "work_orders": "maintenance_work_orders", "calendar": "site_calendar", "operators": "operators",
+             "customers": "customers", "price_index": "price_index_monthly", "materials": "material_classes",
+             "grade_rules": "quality_grade_rules"}
+    base = {k: load(v) for k, v in names.items()}
+    base.update(decisions=FakeDecisionRepo())
+    return base
+
+
+def services(customer_id=None, site_id=None, params=None, peers=True):
+    from app.core.config import Settings
+    from app.repositories.scope import Scope, scope_repos
+    from app.services.registry import Services
+
+    scope = Scope(customer_id, site_id) if customer_id else None
+    return Services(scope_repos(base_repos(), scope), Settings(), DEFAULT_PARAMS if params is None else params,
+                    customer_id, site_id, peers=peers and scope is None)
+
+
+def real_stack():
+    svc = services()
+    return svc.comparison, svc.costs, svc.actions, svc.scorecard
+
+
+def feature_stack(params=None):
+    svc = services(params=params)
+    return {"data": svc.data, "pickups": svc.pickups, "site_checks": svc.site_checks, "fleet": svc.fleet,
+            "value": svc.value, "decisions": svc.decisions, "services": svc}

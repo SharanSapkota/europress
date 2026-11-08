@@ -1,3 +1,6 @@
+import re
+from datetime import date
+
 from app.core.config import Settings
 from app.services.explain import listing, why
 from app.services.matching_service import MatchingService
@@ -6,10 +9,28 @@ from app.services.pricing import LIFT_STATUSES, MASS_LINES
 
 STATUS_ORDER = ("CHECK", "NO_DATA", "EXPLAINED", "MATCH", "DISPUTED")
 WEIGHT_FAMILIES = ("WEIGHT_DISCREPANCY", "WEIGHT_UNVERIFIED", "WEIGHT_BASIS_MISMATCH", "GRADE_NOT_SHARED")
-DECISIONS = {"question": "dispute_draft"}
+DECISIONS = {"question": "dispute_sent"}
 CAUSE = {"WEIGHT_DISCREPANCY": "measurement", "WEIGHT_UNVERIFIED": "data", "GRADE_NOT_SHARED": "data"}
-CAUSE_TEXT = {"invoice": "Invoice line compared with your contract", "measurement": "Device or weighbridge measurement",
+CAUSE_TEXT = {"invoice": "Billed lift compared with your contract", "measurement": "Device or weighbridge measurement",
               "data": "Missing data", "normal": "Normal operation"}
+
+
+SHORT = {
+    "DUPLICATE_LINE": "{} billed twice", "UNMATCHED_LINE": "{} with no matching pickup",
+    "WRONG_SURCHARGE": "{} differs from your contract", "OUTDATED_TARIFF": "{} at an old rate",
+    "MISSING_LINE": "{} not billed", "UNINVOICED_COLLECTION": "Pickup not on the invoice",
+    "RATE_DIFFERENCE": "{} rate differs from your contract", "AMOUNT_DIFFERENCE": "{} amount differs",
+    "UNEXPECTED_LINE": "{} not in your contract", "WEIGHT_DISCREPANCY": "Scale weight differs from the device",
+    "WEIGHT_UNVERIFIED": "Billed weight not confirmed by a scale ticket", "GRADE_NOT_SHARED": "Quality grade not shared",
+}
+
+
+def short_reason(item: dict | None) -> str | None:
+    if not item:
+        return None
+    if item["family"] == "WEIGHT_BASIS_MISMATCH":
+        return f"Billed weight {'above' if item['euros_at_stake_cents'] > 0 else 'below'} scale ticket"
+    return SHORT.get(item["family"], "{} differs").format(label(item.get("line_type") or "") or "Charge")
 
 
 def cause_of(item: dict | None, status: str) -> str | None:
@@ -32,11 +53,54 @@ LABELS = {
     "SIDE_WASTE_FEE": "Side waste fee", "EMERGENCY_SURCHARGE": "Emergency surcharge",
     "CANCELLATION_FEE": "Cancellation fee", "WASTED_TRIP_FEE": "Wasted trip fee", "RENTAL": "Rental",
 }
-WEIGHT_SOURCE = {"ticket": "Weighbridge ticket {}", "invoice": "Invoice line {}", "device": "Device {} estimate"}
+WEIGHT_SOURCE = {"ticket": "Weighbridge ticket {}", "invoice": "Invoice item {}", "device": "Device {} estimate"}
 
 
 def label(line_type: str) -> str:
     return LABELS.get(line_type, line_type.replace("_", " ").capitalize())
+
+
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec")
+WEIGHT_NOTE = {"ticket": "scale ticket", "device": "device estimate", "invoice": "billed quantity"}
+
+
+def tonnes(kg: int | float) -> str:
+    return f"{round(kg / 1000, 2):g}".replace(".", ",") + " t"
+
+
+def short_day(iso: str | None) -> str:
+    if not iso:
+        return "–"
+    d = date.fromisoformat(iso[:10])
+    return f"{d.day} {MONTHS[d.month - 1]}"
+
+
+def version_no(vid: str | None) -> str | None:
+    m = re.search(r"-V(\d+)$", vid or "")
+    return m.group(1) if m else None
+
+
+def lifts(n: int, tail: str) -> str:
+    return f"{n} {'lift' if n == 1 else 'lifts'}{tail}"
+
+
+def material_text(m: str | None) -> str:
+    return (m or "waste").replace("_", " ")
+
+
+def dispute_message(invoice: str | None, opening: str, check: str, diff_cents: int) -> str:
+    where = f"On invoice {invoice}, " if invoice else "On your invoice, "
+    return (f"Hello,\n\n{where}{opening}{(' ' + check) if check else ''}\n\n"
+            f"Could you please check this lift and correct it if needed? The difference is {eur(diff_cents)}.\n\n"
+            f"Thank you,")
+
+
+def view_of(row: dict) -> str:
+    if row["status"] == "DISPUTED":
+        return "disputed"
+    if row["status"] == "EXPLAINED":
+        return "explained"
+    return "check" if row["status"] != "MATCH" and row["needs_attention"] else "match"
 
 
 STORED_TARE_REASON = ("The operator used a stored truck weight. That can explain the gap, "
@@ -56,7 +120,7 @@ def how_sure(confidence: str, weight: dict | None = None) -> str:
     if src == "invoice":
         return "Not sure: our weight is the operator's own invoice quantity, no scale ticket was shared."
     if confidence == "high":
-        return "Sure: the numbers come from the invoice line, the scale ticket and your contract."
+        return "Sure: the numbers come from the invoice, the scale ticket and your contract."
     return "Fairly sure: the numbers come from your contract and the operator's records, but one input is uncertain."
 
 
@@ -65,7 +129,7 @@ def draft(action: str, what: str, ref: str, invoice: str, detail: str) -> str:
         ask = ("Could you please share the weighbridge ticket for this pickup (gross, tare and net weight)? "
                "It would help us confirm the billed weight.")
     else:
-        ask = "Could you please check this line and let us know? We may have missed something on our side."
+        ask = "Could you please check this lift and let us know? We may have missed something on our side."
     return (f"Hello,\n\nWe are going through invoice {invoice} and have a question about {what} "
             f"(job reference {ref}).\n\n{detail}\n\n{ask}\n\nThank you for your help.\n\nBest regards,")
 
@@ -114,6 +178,9 @@ class ComparisonService:
         decided = self.decisions.current("invoice_item", [r["pickup_id"] for r in rows])
         for r in rows:
             self._apply_decision(r, decided.get(r["pickup_id"]))
+            if r["difference_cents"] == 0 and r["status"] != "DISPUTED":
+                r["status"], r["needs_attention"] = "MATCH", False
+            r["view"] = view_of(r)
         rows.sort(key=lambda r: (STATUS_ORDER.index(r["status"]), r["date"] or "", r["pickup_id"]))
 
         by_id = {ln["invoice_line_id"]: ln for ln in op_lines}
@@ -125,30 +192,39 @@ class ComparisonService:
             "service_date": ln.get("service_date"), "operator_job_ref": ln.get("operator_job_ref"),
             "euros_at_stake_cents": ln.get("amount_cents") or 0, "confidence": "high",
             "reason": f"{label(ln['line_type'])} on {ln.get('service_date')} (job {ln.get('operator_job_ref')}) "
-                      f"has no matching pickup by job reference or by contract, date and line type.",
-            "sources": {"operator_amount": f"Invoice line {ln['invoice_line_id']}"},
+                      f"has no matching pickup by job reference or by contract, date and charge type.",
+            "sources": {"operator_amount": f"Invoice item {ln['invoice_line_id']}"},
             "invoice_id": ln["invoice_id"], "operator_id": inv_op.get(ln["invoice_id"]),
             "suggested_action": "CORRECT_LINE",
             "explain": {"what": f"The invoice has a {label(ln['line_type']).lower()} of {eur(ln.get('amount_cents') or 0)} "
                                 f"on {ln.get('service_date')} that we cannot link to a pickup.",
-                        "why": "The job reference and the contract, date and line type do not match any pickup we have.",
+                        "why": "The job reference and the contract, date and charge type do not match any pickup we have.",
                         "how_sure": how_sure("high")},
             "why": {"amount": why(f"{label(ln['line_type'])} of {eur(ln.get('amount_cents') or 0)} on the invoice",
-                                  f"Invoice line {ln['invoice_line_id']}", "high",
-                                  "No pickup matches its job reference, or its contract, date and line type.",
+                                  f"Invoice item {ln['invoice_line_id']}", "high",
+                                  "No pickup matches its job reference, or its contract, date and charge type.",
                                   "observed")},
             "cause": "invoice", "cause_text": CAUSE_TEXT["invoice"],
             "trail": {"invoice_line_ids": [ln["invoice_line_id"]], "operator_job_ref": ln.get("operator_job_ref"),
                       "invoice_ids": [ln["invoice_id"]]},
+            "needs_attention": True, "short_reason": f"{label(ln['line_type'])} with no matching pickup",
+            "ours_note": "No pickup found", "billed_note": f"{label(ln['line_type'])} billed",
+            "dispute_message": dispute_message(
+                ln["invoice_id"], f"there is a {label(ln['line_type']).lower()} of {eur(ln.get('amount_cents') or 0)} "
+                f"on {short_day(ln.get('service_date'))} that we cannot link to a pickup.", "",
+                ln.get("amount_cents") or 0),
+            "dispute": {"invoice_id": ln["invoice_id"], "line_no": ln.get("line_no"),
+                        "invoice_line_id": ln["invoice_line_id"], "operator_email": None},
             "draft_question": draft(
                 "CHECK_LINE", f"the {label(ln['line_type']).lower()} on {ln.get('service_date')}",
                 ln.get("operator_job_ref") or "not given", ln["invoice_id"],
-                f"Invoice line {ln['invoice_line_id']} ({eur(ln.get('amount_cents') or 0)}) does not seem to belong "
+                f"Invoice item {ln['invoice_line_id']} ({eur(ln.get('amount_cents') or 0)}) does not seem to belong "
                 f"to any pickup we have on record."),
         } for ln in no_lift]
         line_decisions = self.decisions.current("invoice_item", [u["entity_id"] for u in unmatched])
         for u in unmatched:
             self._apply_decision(u, line_decisions.get(u["entity_id"]))
+            u["view"] = "disputed" if u["status"] == "DISPUTED" else "check"
         unmatched_cents = sum(u["euros_at_stake_cents"] for u in unmatched)
         ours = sum(r["ours"]["amount_cents"] for r in rows)
         operator = sum(r["operator"]["amount_cents"] for r in rows) + unmatched_cents
@@ -165,8 +241,12 @@ class ComparisonService:
                        "monthly_fixed_cents": sum(ln.get("amount_cents") or 0 for ln in m["monthly"])},
             "counts": {s: sum(1 for r in rows if r["status"] == s) for s in STATUS_ORDER},
             "line_total": len([ln for ln in op_lines if ln["line_type"] != "RENTAL"]),
+            "attention_count": sum(1 for r in rows if r["needs_attention"]) + len(unmatched),
+            "match_count": sum(1 for r in rows if not r["needs_attention"]),
             "line_counts": {s: sum(1 for res in m["lines"].values() if res["status"] == s)
                             for s in ("MATCHED", "DUPLICATE", "NO_LIFT")},
+            "view_counts": {v: sum(1 for x in rows + unmatched if x["view"] == v)
+                            for v in ("check", "disputed", "explained", "match")},
             "unmatched_lines": unmatched,
             "rows": rows,
             "why": self._totals_why(rows, invoices, unmatched),
@@ -181,7 +261,7 @@ class ComparisonService:
                 if weak else "Every weight comes from a scale ticket.")
         return {
             "ours": why(f"Sum of our estimates for {len(rows)} pickups.", versions, conf, sure),
-            "operator": why(f"Sum of {len(invoices)} operator invoices, including {len(unmatched)} lines without a pickup.",
+            "operator": why(f"Sum of {len(invoices)} operator invoices, including {len(unmatched)} charges without a pickup.",
                             listing([i["invoice_id"] for i in invoices], "Invoices"), "high", None, "observed"),
             "difference": why("Operator invoice minus our estimate.", f"{versions}; "
                               f"{listing([i['invoice_id'] for i in invoices], 'invoices')}", conf, sure),
@@ -206,7 +286,30 @@ class ComparisonService:
             res = self.compare(period)
             for r in res["rows"]:
                 if r["pickup_id"] == item_id:
-                    return {"label": f"{(r['material'] or 'Waste').replace('_', ' ').capitalize()} pickup on {r['date']}",
+                    mat = material_text(r["material"]).capitalize()
+                    vno = version_no(r["contract_version_id"])
+                    dev = r["device_kg"]
+                    evidence = {"pickup_id": r["pickup_id"], "date": r["date"], "material": r["material"],
+                                "invoice_id": (r["invoice_ids"] or [None])[0], "operator_job_ref": r["operator_job_ref"],
+                                "our_scale_kg": dev, "our_scale_range_kg": r["ours"]["range_kg"],
+                                "ticket_id": r["ticket_id"], "ticket_kg": r["ticket_kg"],
+                                "billed_kg": r["operator"]["billed_kg"], "weight_source": r["ours"]["weight_source"],
+                                "contract_version_id": r["contract_version_id"],
+                                "should_cost_cents": r["ours"]["amount_cents"], "billed_cents": r["operator"]["amount_cents"],
+                                "difference_cents": r["difference_cents"]}
+                    billed = r["operator"]["billed_kg"]
+                    view = {"title": f"Lift, {short_day(r['date'])}",
+                            "detail": f"{mat} · {(r['short_reason'] or 'matches your contract').lower()}",
+                            "trail": [{"label": "Pickup", "value": f"{short_day(r['date'])} · {mat}"},
+                                      {"label": "Our scale", "value": f"{tonnes(dev)}" + (
+                                          f" ± {tonnes(r['ours']['range_kg'])}" if r["ours"]["range_kg"] else "")
+                                       if dev is not None else "No reading"},
+                                      {"label": "Scale ticket",
+                                       "value": tonnes(r["ticket_kg"]) if r["ticket_kg"] is not None else "Not shared"},
+                                      {"label": "Contract", "value": f"Version {vno}" if vno else "Not found"},
+                                      {"label": "Billed", "value": (f"{tonnes(billed)} · " if billed is not None else "")
+                                       + eur(r["operator"]["amount_cents"])}]}
+                    return {"label": f"{mat} pickup on {r['date']}", "evidence": evidence, "view": view,
                             "action": r["suggested_action"], "text": r["reason"],
                             "numbers": {"ours_cents": r["ours"]["amount_cents"],
                                         "operator_cents": r["operator"]["amount_cents"],
@@ -218,18 +321,26 @@ class ComparisonService:
                                         "invoice_line_ids": ", ".join(r["trail"]["invoice_line_ids"])}}
             for u in res["unmatched_lines"]:
                 if u["entity_id"] == item_id:
-                    return {"label": f"{u['label']} on {u['service_date']} without a pickup",
-                            "action": u["suggested_action"], "text": u["reason"],
+                    view = {"title": f"{u['label']}, {short_day(u['service_date'])}", "detail": "No matching pickup",
+                            "trail": [{"label": "Invoice", "value": u["invoice_id"]},
+                                      {"label": "Billed", "value": eur(u["euros_at_stake_cents"])}]}
+                    evidence = {"invoice_id": u["invoice_id"], "invoice_line_id": u["entity_id"], "date": u["service_date"],
+                                "operator_job_ref": u["operator_job_ref"], "billed_cents": u["euros_at_stake_cents"],
+                                "difference_cents": u["euros_at_stake_cents"]}
+                    return {"label": f"{u['label']} on {u['service_date']} without a pickup", "evidence": evidence,
+                            "view": view, "action": u["suggested_action"], "text": u["reason"],
                             "numbers": {"operator_cents": u["euros_at_stake_cents"], "status": u["found_status"],
                                         "operator_job_ref": u["operator_job_ref"], "invoice_line_ids": u["entity_id"]}}
         return None
 
-    def decide(self, item_id: str, decision: str) -> dict | None:
+    def decide(self, item_id: str, decision: str, message: str | None = None) -> dict | None:
         item = self.find_item(item_id)
         if not item:
             return None
+        view = dict(item["view"], suggestion="Submit a dispute" if decision != "ok" else "No action")
         return self.decisions.record("invoice_item", item_id, decision, item["label"],
-                                     {"action": item["action"], "text": item["text"]}, item["numbers"])
+                                     {"action": item["action"], "text": item["text"]}, item["numbers"],
+                                     evidence=item["evidence"], message=message, view=view)
 
     @staticmethod
     def _apply_decision(item: dict, d: dict | None) -> None:
@@ -254,7 +365,7 @@ class ComparisonService:
             mass = lr["line_type"] in MASS_LINES
             line_conf = "high" if not mass or w["source"] == "ticket" else w["confidence"]
             src = "; ".join(x for x in (lr["our_source"], lr["operator_source"]) if x) or None
-            lr["why"] = why(f"{lr['label']}: our estimate and the invoice line.", src, line_conf,
+            lr["why"] = why(f"{lr['label']}: our estimate and the invoice.", src, line_conf,
                             (reasons.get(lr["invoice_line_id"]) or by_type.get(lr["line_type"]))
                             if lr["status"] == "CHECK" else None)
         out = {
@@ -272,6 +383,34 @@ class ComparisonService:
                                 weight_src, w["confidence"], f"{text[0].upper()}{text[1:]}." if text else None,
                                 "estimated" if w["source"] == "device" else "observed")
         return out
+
+    def _should_why(self, ours: dict, w: dict, has_mass: bool) -> dict:
+        n = version_no(ours["contract_version_id"])
+        contract = f"Your contract (version {n})" if n else "Your contract"
+        what = f"Should cost {eur(ours['total_cents'])} (estimate)."
+        if not has_mass:
+            return {"what": what, "source": f"{contract}, fixed fees per lift.", "confidence": "high",
+                    "reason": "Fixed fees from your contract. No weight is needed.", "evidence": "observed"}
+        src, kg, dev = w["source"], w["kg"], ours["device_kg"]
+        if src is None or kg is None:
+            return {"what": what, "source": f"{contract}. No weight yet.", "confidence": "low",
+                    "reason": "Not enough data: no scale ticket and no container scale weight.", "evidence": "estimated"}
+        if src == "ticket":
+            where = f"the operator's own scale ticket of {short_day(ours['service_date'])}: {tonnes(kg)}"
+            if dev is None:
+                conf, sure = "high", "The scale ticket is the official weight. There is no container scale reading."
+            elif abs(dev - kg) * 100 <= self.s.weight_tolerance_pct * max(kg, 1):
+                conf, sure = "high", f"Our container scale says {tonnes(dev)} too."
+            else:
+                conf, sure = "medium", f"Our container scale says {tonnes(dev)}. The scale ticket is used."
+        elif src == "device":
+            where = f"our container scale: {tonnes(kg)}" + (f" ± {tonnes(w['range_kg'])}" if w["range_kg"] else "")
+            conf, sure = "medium", "No scale ticket yet. The container scale has a small margin."
+        else:
+            where = f"the operator's billed quantity: {tonnes(kg)}"
+            conf, sure = "low", "Only the operator's own quantity. No scale ticket and no container scale weight."
+        return {"what": what, "source": f"{contract} × {where}.", "confidence": conf, "reason": sure,
+                "evidence": "observed" if src == "ticket" else "estimated"}
 
     def _action(self, status: str, items: list[dict], lines: list[dict], ours: dict) -> str:
         if status in ("MATCH", "EXPLAINED"):
@@ -310,7 +449,7 @@ class ComparisonService:
                 "operator": part(op) if op else None, "difference_cents": diff, "duplicate": False,
                 "status": "MATCH" if ok or (not mine and not op_amt) else "CHECK",
                 "our_source": f"Contract version {vid}" if mine else None,
-                "operator_source": f"Invoice line {op['invoice_line_id']}" if op else None,
+                "operator_source": f"Invoice item {op['invoice_line_id']}" if op else None,
                 "invoice_line_id": op["invoice_line_id"] if op else None,
                 "invoice_id": op["invoice_id"] if op else None,
             })
@@ -319,7 +458,7 @@ class ComparisonService:
                 out.append({"line_type": ln["line_type"], "label": f"{label(ln['line_type'])} (again)", "ours": None,
                             "operator": part(ln), "difference_cents": ln.get("amount_cents") or 0, "duplicate": True,
                             "status": "CHECK", "our_source": None,
-                            "operator_source": f"Invoice line {ln['invoice_line_id']}",
+                            "operator_source": f"Invoice item {ln['invoice_line_id']}",
                             "invoice_line_id": ln["invoice_line_id"], "invoice_id": ln["invoice_id"]})
         return out
 
@@ -391,7 +530,7 @@ class ComparisonService:
         base = {"entity_type": "collection", "entity_id": pid, "euros_at_stake_cents": stake,
                 "sources": {"device_weight": f"Device {ours['device_id']} estimate",
                             "billed_weight": f"Weighbridge ticket {ticket['ticket_id']}" if ticket else
-                            f"Invoice line {(ours['weight'] or {}).get('source_id')}"}}
+                            f"Invoice item {(ours['weight'] or {}).get('source_id')}"}}
         if not ticket:
             return dict(base, family="WEIGHT_UNVERIFIED", status="CHECK", confidence="low",
                         reason=f"Billed weight {ref} kg, device weight {dev} kg ({pct:+d}%); "
@@ -459,8 +598,12 @@ class ComparisonService:
         elif first:
             reason = first["reason"]
         else:
-            reason = f"Every line matches contract version {vid} within {self.s.tolerance_pct:g}%."
+            reason = f"Every charge for this lift matches contract version {vid} within {self.s.tolerance_pct:g}%."
         action = self._action(status, items, lines, ours)
+        lead = max((i for i in items if i["status"] != "EXPLAINED"), key=lambda i: abs(i["euros_at_stake_cents"]),
+                   default=first)
+        by_line = {ln["invoice_line_id"]: ln for ln in theirs}
+        lead_line = by_line.get((lead or {}).get("entity_id"))
         weak = action == "REQUEST_TICKET"
         inv_ids = sorted({ln["invoice_id"] for ln in theirs})
         first_check = next((i for i in items if i["status"] != "EXPLAINED"), first)
@@ -470,7 +613,44 @@ class ComparisonService:
         what = (f"The invoice shows {eur(op_total)} for this pickup and our estimate is {eur(ours['total_cents'])}{weights}."
                 if theirs else f"This pickup is not on the invoice; our estimate is {eur(ours['total_cents'])}.")
         conf = (first or {}).get("confidence", w["confidence"])
+        row_why = self._row_why(ours, w, theirs, inv_ids, op_total, billed, reason, conf, period, lines, items)
+        row_why["ours"] = self._should_why(ours, w, has_mass)
+        lift_qty = sum(int(ln.get("quantity") or 1) for ln in ours["lines"] if ln["line_type"] == "LIFT_FEE") or 1
+        billed_lifts = sum(1 for ln in theirs if ln["line_type"] == "LIFT_FEE")
+        if has_mass and w["kg"] is not None:
+            spread = f" ± {tonnes(w['range_kg'])}" if w["source"] == "device" and w["range_kg"] else ""
+            ours_note = f"{tonnes(w['kg'])}{spread}, {WEIGHT_NOTE[w['source']]}"
+        elif has_mass:
+            ours_note = "No weight yet"
+        else:
+            ours_note = lifts(lift_qty, ", your contract")
+        if not theirs:
+            billed_note = "Not on the invoice"
+        elif billed is not None:
+            billed_note = f"{tonnes(billed)} billed"
+        else:
+            billed_note = lifts(billed_lifts, " billed")
+        dev, tk = ours["device_kg"], (ours["ticket"] or {}).get("allocated_net_kg")
+        subject = f"the {material_text(ours['material'])} pickup on {short_day(ours['service_date'])}"
+        if has_mass and billed is not None:
+            opening = f"{subject} is billed at {tonnes(billed)}."
+        elif theirs:
+            opening = f"{subject} is billed at {eur(op_total)} ({billed_note})."
+        else:
+            opening = f"{subject} is not on the invoice."
+        if has_mass and tk is not None:
+            same = dev is not None and abs(dev - tk) * 100 <= self.s.weight_tolerance_pct * max(tk, 1)
+            tail = (", and our container scale shows the same." if same else
+                    f", and our container scale shows {tonnes(dev)}." if dev is not None else ".")
+            check = f"Your scale ticket for this pickup shows {tonnes(tk)}{tail}"
+        elif has_mass and dev is not None:
+            check = f"No scale ticket has been shared yet. Our container scale shows {tonnes(dev)}."
+        else:
+            check = f"Under our contract it should cost {eur(ours['total_cents'])} ({ours_note})."
         return {
+            "ours_note": ours_note, "billed_note": billed_note,
+            "dispute_message": dispute_message(inv_ids[0] if inv_ids else None, opening, check,
+                                               op_total - ours["total_cents"]),
             "site_id": pickup.get("site_id"), "operator_id": pickup.get("operator_id"),
             "draft_question": None if action == "NONE" else draft(
                 action, f"the {(ours['material'] or 'waste').replace('_', ' ')} pickup on {ours['service_date']}",
@@ -491,6 +671,11 @@ class ComparisonService:
             "status": status, "reason": reason,
             "evidence": "weak" if weak else "strong",
             "suggested_action": action,
+            "needs_attention": abs(op_total - ours["total_cents"]) > max(1, self._tol(max(abs(op_total), abs(ours["total_cents"])))),
+            "short_reason": short_reason(lead),
+            "dispute": {"invoice_id": inv_ids[0] if inv_ids else None,
+                        "line_no": (lead_line or {}).get("line_no"),
+                        "invoice_line_id": (lead_line or {}).get("invoice_line_id"), "operator_email": None},
             "cause": cause_of(first, status), "cause_text": CAUSE_TEXT.get(cause_of(first, status) or ""),
             "trail": {"pickup_id": ours["pickup_id"], "operator_job_ref": ours["operator_job_ref"],
                       "ticket_id": (ours["ticket"] or {}).get("ticket_id"), "contract_version_id": vid,
@@ -500,7 +685,7 @@ class ComparisonService:
             "trigger_type": pickup.get("original_trigger_type") if pickup.get("trigger_type") == "RESCHEDULED"
             else pickup.get("trigger_type"),
             "explain": {"what": what, "why": reason, "how_sure": how_sure(conf, w)},
-            "why": self._row_why(ours, w, theirs, inv_ids, op_total, billed, reason, conf, period, lines, items),
+            "why": row_why,
             "fill_before_pct": pickup.get("device_fill_pct_before"),
             "summary": ours["summary"], "our_lines": ours["lines"], "price_args": ours["price_args"],
             "version": ours["version"], "weight_kg": w["kg"],
@@ -508,7 +693,7 @@ class ComparisonService:
                 "our_amount": f"Contract version {vid}" if vid else None,
                 "our_weight": WEIGHT_SOURCE[w["source"]].format(w["source_id"]) if w["source"] else "Not enough data",
                 "operator_amount": f"Invoice {', '.join(inv_ids)}" if inv_ids else None,
-                "billed_weight": f"Invoice line {tonnage['invoice_line_id']}" if tonnage else None,
+                "billed_weight": f"Invoice item {tonnage['invoice_line_id']}" if tonnage else None,
                 "device_weight": f"Device {ours['device_id']} estimate" if ours["device_kg"] is not None else None,
                 "grade": f"Quality assessment {ours['grade_source']}" if ours["grade_source"] else
                 ("Not shared (grade A assumed)" if ours["price_args"]["credit_eligible"] else None),

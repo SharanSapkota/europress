@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from time import monotonic
 from decimal import ROUND_HALF_UP, Decimal
 
 from pymongo.database import Database
@@ -45,17 +46,32 @@ class _Repo:
 
 
 class _CachedRepo(_Repo):
+    ttl_seconds = 300
+    _shared: dict[str, tuple[float, list[dict]]] = {}
+
     def __init__(self, db: Database):
         super().__init__(db)
         self._docs: list[dict] | None = None
 
     def _all(self) -> list[dict]:
         if self._docs is None:
-            self._docs = [to_domain(d) for d in self.col.find()]
+            key = f"{self.col.database.name}.{self.name}"
+            hit = _CachedRepo._shared.get(key)
+            if hit and monotonic() - hit[0] < self.ttl_seconds:
+                self._docs = hit[1]
+            else:
+                self._docs = [to_domain(d) for d in self.col.find()]
+                _CachedRepo._shared[key] = (monotonic(), self._docs)
         return self._docs
 
+    @staticmethod
+    def _match(value, expected) -> bool:
+        if isinstance(expected, dict) and "$in" in expected:
+            return value in set(expected["$in"])
+        return value == expected
+
     def _find(self, query: dict, sort: list | None = None) -> list[dict]:
-        docs = [d for d in self._all() if all(d.get(k) == v for k, v in query.items())]
+        docs = [d for d in self._all() if all(self._match(d.get(k), v) for k, v in query.items())]
         for field, direction in reversed(sort or []):
             docs.sort(key=lambda d: (d.get(field) is None, d.get(field)), reverse=direction < 0)
         return docs
@@ -69,7 +85,7 @@ class DeviceRepository(_CachedRepo):
     key = "device_id"
 
 
-class PickupRepository(_Repo):
+class PickupRepository(_CachedRepo):
     name = "collection_events"
     key = "collection_id"
 
@@ -116,7 +132,7 @@ class MaterialRepository(_CachedRepo):
     key = "material_stream"
 
 
-class OperatorInvoiceRepository(_Repo):
+class OperatorInvoiceRepository(_CachedRepo):
     name = "invoices"
     key = "invoice_id"
 
@@ -124,10 +140,10 @@ class OperatorInvoiceRepository(_Repo):
         return self._find({"billing_period": period})
 
     def periods(self) -> list[str]:
-        return sorted(self.col.distinct("billing_period"))
+        return sorted({d["billing_period"] for d in self._all() if d.get("billing_period")})
 
 
-class OperatorInvoiceLineRepository(_Repo):
+class OperatorInvoiceLineRepository(_CachedRepo):
     name = "invoice_lines"
     key = "invoice_line_id"
 
@@ -165,6 +181,21 @@ class SiteRepository(_CachedRepo):
 class OperatorRepository(_CachedRepo):
     name = "operators"
     key = "operator_id"
+
+
+class WorkOrderRepository(_CachedRepo):
+    name = "maintenance_work_orders"
+    key = "work_order_id"
+
+
+class SiteCalendarRepository(_CachedRepo):
+    name = "site_calendar"
+    key = "site_id"
+
+
+class GradeRuleRepository(_CachedRepo):
+    name = "quality_grade_rules"
+    key = "grade"
 
 
 class TelemetryDailyRepository(_Repo):

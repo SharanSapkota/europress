@@ -1,0 +1,16 @@
+status: "HYPOTHETICAL team assumptions for Task D; every value has a one-line reason; confirm before use"
+
+pricing:
+  price_per_device_month_eur: [29, 49, 79]   # assumption: three package levels (basic, standard, full) for sensitivity
+costs:
+  onboarding_per_device_eur: 150             # assumption: one site visit and setup shared across devices
+  operating_cost_per_device_month_eur: 9     # assumption: data, hosting and support per connected device
+adoption:
+  adoption_share_of_eligible_pct: [20, 40]   # assumption: low and mid case; half of the mid case is shown as the downside
+equipment:
+  lease_per_m3_month_eur: 15                 # assumption: extra lease for each added m3; contract rentals in the data are mostly 0
+plans:
+  weight_eur_per_container_month: 39         # assumption: Weight plan priced below the value found per container (example price, not an offer)
+  pro_eur_per_container_month: 69            # assumption: Pro adds operator scorecard and tender advice (example price, not an offer)
+market:
+  connected_containers: 500                  # assumption: illustrative Europress base of connected containers for the business view

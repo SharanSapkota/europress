@@ -14,6 +14,8 @@ export interface Container {
   name: string;
   full_name: string;
   site_name: string | null;
+  site_label: string | null;
+  short_reason: string | null;
   cost_per_t_cents: number | null;
   benchmark_cents_per_t: number | null;
   ratio: number | null;
@@ -41,7 +43,10 @@ export interface Costs {
   months: number;
   periods: string[];
   headline: string;
+  site_count: number;
+  highlight: { ratio: number; sentence: string; reason: string | null; device_id: string } | null;
   containers: Container[];
 }
 
-export const getCosts = (months = 3) => request<Costs>(`/api/costs?months=${months}`);
+export const getCosts = (months = 3, siteId = "") =>
+  request<Costs>(`/api/costs?months=${months}${siteId ? `&site_id=${encodeURIComponent(siteId)}` : ""}`);
